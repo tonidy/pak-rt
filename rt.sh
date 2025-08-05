@@ -909,6 +909,557 @@ setup_container_namespaces() {
 }
 
 # =============================================================================
+# NETWORK NAMESPACE AND CONTAINER COMMUNICATION
+# =============================================================================
+
+# Global network tracking for cleanup
+declare -A ACTIVE_NETWORKS
+declare -A CONTAINER_IPS
+declare -g NEXT_IP_OCTET=2
+
+# Get next available IP address in the container network
+get_next_container_ip() {
+    local ip="10.0.0.$NEXT_IP_OCTET"
+    ((NEXT_IP_OCTET++))
+    echo "$ip"
+}
+
+# Create network namespace for container
+create_network_namespace() {
+    local container_name=$1
+    
+    log_step 1 "Creating network namespace for container: $container_name" \
+              "Seperti menyiapkan sistem telepon rumah dengan nomor khusus"
+    
+    local ns_dir="$CONTAINERS_DIR/$container_name/namespaces"
+    create_directory "$ns_dir"
+    
+    # Create network namespace
+    if ! ip netns add "container-$container_name" 2>/dev/null; then
+        # Check if namespace already exists
+        if ip netns list | grep -q "container-$container_name"; then
+            log_warn "Network namespace already exists for container: $container_name" \
+                     "Seperti nomor telepon rumah sudah terdaftar sebelumnya"
+        else
+            log_error "Failed to create network namespace" \
+                      "Gagal mendaftarkan nomor telepon rumah"
+            return 1
+        fi
+    fi
+    
+    log_info "Network namespace created: container-$container_name" \
+             "Seperti nomor telepon rumah berhasil didaftarkan"
+    
+    # Configure loopback interface in the namespace
+    if ! ip netns exec "container-$container_name" ip link set lo up; then
+        log_error "Failed to configure loopback interface" \
+                  "Gagal mengaktifkan telepon internal rumah"
+        return 1
+    fi
+    
+    # Save network namespace configuration
+    cat > "$ns_dir/network.conf" << EOF
+network_namespace_enabled=true
+namespace_name=container-$container_name
+loopback_configured=true
+created_at=$(date '+%Y-%m-%d %H:%M:%S')
+EOF
+    
+    # Track active network namespace
+    ACTIVE_NETWORKS["$container_name"]="container-$container_name"
+    
+    log_success "Network namespace configured with loopback interface" \
+                "Sistem telepon rumah siap dengan jalur internal aktif"
+    
+    return 0
+}
+
+# Create veth pair for container-to-container communication
+create_veth_pair() {
+    local container_name=$1
+    local peer_container=${2:-""}
+    
+    log_step 2 "Creating veth pair for container: $container_name" \
+              "Seperti memasang kabel telepon khusus untuk komunikasi antar rumah"
+    
+    local veth_host="veth-${container_name}"
+    local veth_container="veth-${container_name}-c"
+    
+    # Create veth pair
+    if ! ip link add "$veth_host" type veth peer name "$veth_container"; then
+        log_error "Failed to create veth pair" \
+                  "Gagal memasang kabel telepon antar rumah"
+        return 1
+    fi
+    
+    log_info "Veth pair created: $veth_host <-> $veth_container" \
+             "Seperti kabel telepon terpasang antara sentral dan rumah"
+    
+    # Move container end to the container's network namespace
+    if ! ip link set "$veth_container" netns "container-$container_name"; then
+        log_error "Failed to move veth to container namespace" \
+                  "Gagal memasang ujung kabel ke dalam rumah"
+        # Cleanup on failure
+        ip link delete "$veth_host" 2>/dev/null
+        return 1
+    fi
+    
+    # Bring up the host end
+    if ! ip link set "$veth_host" up; then
+        log_error "Failed to bring up host veth interface" \
+                  "Gagal mengaktifkan ujung kabel di sentral"
+        return 1
+    fi
+    
+    # Bring up the container end
+    if ! ip netns exec "container-$container_name" ip link set "$veth_container" up; then
+        log_error "Failed to bring up container veth interface" \
+                  "Gagal mengaktifkan ujung kabel di dalam rumah"
+        return 1
+    fi
+    
+    # Save veth configuration
+    local ns_dir="$CONTAINERS_DIR/$container_name/namespaces"
+    cat >> "$ns_dir/network.conf" << EOF
+veth_host=$veth_host
+veth_container=$veth_container
+veth_created=true
+EOF
+    
+    log_success "Veth pair configured and activated" \
+                "Kabel telepon terpasang dan siap untuk komunikasi"
+    
+    return 0
+}
+
+# Setup IP addressing with 10.0.0.x subnet
+setup_container_ip() {
+    local container_name=$1
+    local container_ip=${2:-$(get_next_container_ip)}
+    
+    log_step 3 "Setting up IP address for container: $container_name" \
+              "Seperti memberikan nomor telepon khusus: $container_ip"
+    
+    local veth_container="veth-${container_name}-c"
+    local subnet_mask="24"
+    
+    # Assign IP address to container interface
+    if ! ip netns exec "container-$container_name" ip addr add "${container_ip}/${subnet_mask}" dev "$veth_container"; then
+        log_error "Failed to assign IP address to container" \
+                  "Gagal memberikan nomor telepon ke rumah"
+        return 1
+    fi
+    
+    log_info "IP address assigned: $container_ip/$subnet_mask" \
+             "Seperti nomor telepon $container_ip berhasil didaftarkan"
+    
+    # Store container IP for tracking
+    CONTAINER_IPS["$container_name"]="$container_ip"
+    
+    # Update network configuration
+    local ns_dir="$CONTAINERS_DIR/$container_name/namespaces"
+    cat >> "$ns_dir/network.conf" << EOF
+container_ip=$container_ip
+subnet_mask=$subnet_mask
+ip_configured=true
+EOF
+    
+    log_success "Container IP configuration completed" \
+                "Nomor telepon rumah siap untuk menerima dan melakukan panggilan"
+    
+    return 0
+}
+
+# Configure routing for direct container communication
+setup_container_routing() {
+    local container_name=$1
+    
+    log_step 4 "Setting up routing for container: $container_name" \
+              "Seperti mengatur jalur telepon langsung antar rumah tanpa lewat sentral"
+    
+    local container_ip="${CONTAINER_IPS[$container_name]}"
+    local veth_host="veth-${container_name}"
+    
+    if [[ -z "$container_ip" ]]; then
+        log_error "Container IP not found for routing setup" \
+                  "Nomor telepon rumah belum terdaftar untuk pengaturan jalur"
+        return 1
+    fi
+    
+    # Add route to container from host
+    if ! ip route add "$container_ip/32" dev "$veth_host" 2>/dev/null; then
+        # Route might already exist, check if it's correct
+        if ip route show | grep -q "$container_ip.*$veth_host"; then
+            log_info "Route to container already exists" \
+                     "Jalur telepon ke rumah sudah terdaftar sebelumnya"
+        else
+            log_warn "Failed to add route to container, but continuing" \
+                     "Jalur telepon mungkin sudah ada atau akan dibuat otomatis"
+        fi
+    fi
+    
+    # Setup default route in container (optional, for internet access)
+    local gateway_ip="10.0.0.1"
+    if ! ip netns exec "container-$container_name" ip route add default via "$gateway_ip" 2>/dev/null; then
+        log_debug "Default route setup skipped (not required for container-to-container communication)" \
+                  "Jalur ke luar kompleks tidak diperlukan untuk komunikasi antar rumah"
+    fi
+    
+    # Update network configuration
+    local ns_dir="$CONTAINERS_DIR/$container_name/namespaces"
+    cat >> "$ns_dir/network.conf" << EOF
+routing_configured=true
+host_route_added=true
+gateway_ip=$gateway_ip
+EOF
+    
+    log_success "Container routing configured" \
+                "Jalur komunikasi langsung antar rumah siap digunakan"
+    
+    return 0
+}
+
+# Setup complete network for container
+setup_container_network() {
+    local container_name=$1
+    local container_ip=${2:-""}
+    
+    log_info "Setting up complete network for container: $container_name" \
+             "Seperti RT yang menyiapkan sistem komunikasi lengkap untuk rumah baru"
+    
+    # Create network namespace
+    if ! create_network_namespace "$container_name"; then
+        log_error "Failed to create network namespace" \
+                  "Gagal menyiapkan sistem telepon rumah"
+        return 1
+    fi
+    
+    # Create veth pair
+    if ! create_veth_pair "$container_name"; then
+        log_error "Failed to create veth pair" \
+                  "Gagal memasang kabel telepon"
+        cleanup_container_network "$container_name"
+        return 1
+    fi
+    
+    # Setup IP addressing
+    if ! setup_container_ip "$container_name" "$container_ip"; then
+        log_error "Failed to setup container IP" \
+                  "Gagal memberikan nomor telepon"
+        cleanup_container_network "$container_name"
+        return 1
+    fi
+    
+    # Configure routing
+    if ! setup_container_routing "$container_name"; then
+        log_error "Failed to setup container routing" \
+                  "Gagal mengatur jalur komunikasi"
+        cleanup_container_network "$container_name"
+        return 1
+    fi
+    
+    log_success "Complete network setup finished for container: $container_name" \
+                "Sistem komunikasi rumah lengkap dan siap untuk berkomunikasi dengan rumah lain"
+    
+    return 0
+}
+
+# Test network connectivity between containers
+test_container_connectivity() {
+    local container1=$1
+    local container2=$2
+    
+    log_step 5 "Testing network connectivity between containers" \
+              "Seperti menguji apakah telepon antar rumah bisa saling terhubung"
+    
+    local ip1="${CONTAINER_IPS[$container1]}"
+    local ip2="${CONTAINER_IPS[$container2]}"
+    
+    if [[ -z "$ip1" || -z "$ip2" ]]; then
+        log_error "Container IPs not found for connectivity test" \
+                  "Nomor telepon rumah tidak ditemukan untuk tes koneksi"
+        return 1
+    fi
+    
+    log_info "Testing connectivity: $container1 ($ip1) -> $container2 ($ip2)" \
+             "Seperti menguji panggilan dari rumah $container1 ke rumah $container2"
+    
+    # Test ping from container1 to container2
+    if ip netns exec "container-$container1" ping -c 3 -W 2 "$ip2" >/dev/null 2>&1; then
+        log_success "Connectivity test passed: $container1 can reach $container2" \
+                    "Telepon antar rumah berfungsi dengan baik"
+        return 0
+    else
+        log_error "Connectivity test failed: $container1 cannot reach $container2" \
+                  "Telepon antar rumah tidak bisa terhubung"
+        return 1
+    fi
+}
+
+# Cleanup network resources for container
+cleanup_container_network() {
+    local container_name=$1
+    
+    log_info "Cleaning up network resources for container: $container_name" \
+             "Seperti RT yang membersihkan sistem telepon rumah yang sudah kosong"
+    
+    local veth_host="veth-${container_name}"
+    local container_ip="${CONTAINER_IPS[$container_name]}"
+    
+    # Remove route to container
+    if [[ -n "$container_ip" ]]; then
+        ip route del "$container_ip/32" 2>/dev/null || true
+        log_debug "Removed route to container IP: $container_ip"
+    fi
+    
+    # Delete veth pair (this also removes the container end)
+    if ip link show "$veth_host" >/dev/null 2>&1; then
+        if ip link delete "$veth_host" 2>/dev/null; then
+            log_debug "Deleted veth pair: $veth_host"
+        else
+            log_warn "Failed to delete veth pair: $veth_host" \
+                     "Gagal mencabut kabel telepon rumah"
+        fi
+    fi
+    
+    # Delete network namespace
+    if ip netns list | grep -q "container-$container_name"; then
+        if ip netns delete "container-$container_name" 2>/dev/null; then
+            log_debug "Deleted network namespace: container-$container_name"
+        else
+            log_warn "Failed to delete network namespace: container-$container_name" \
+                     "Gagal menghapus sistem telepon rumah"
+        fi
+    fi
+    
+    # Clean up tracking
+    unset ACTIVE_NETWORKS["$container_name"]
+    unset CONTAINER_IPS["$container_name"]
+    
+    # Remove network configuration files
+    local ns_dir="$CONTAINERS_DIR/$container_name/namespaces"
+    rm -f "$ns_dir/network.conf" 2>/dev/null
+    
+    log_success "Network cleanup completed for container: $container_name" \
+                "Sistem telepon rumah berhasil dibersihkan"
+    
+    return 0
+}
+
+# Show network information for container
+show_container_network_info() {
+    local container_name=$1
+    
+    echo "=== Network Information for Container: $container_name ==="
+    
+    local ns_name="container-$container_name"
+    local container_ip="${CONTAINER_IPS[$container_name]}"
+    local veth_host="veth-${container_name}"
+    local veth_container="veth-${container_name}-c"
+    
+    echo "Network Namespace: $ns_name"
+    echo "Container IP: ${container_ip:-Not assigned}"
+    echo "Host veth: $veth_host"
+    echo "Container veth: $veth_container"
+    
+    # Check if namespace exists
+    if ip netns list | grep -q "$ns_name"; then
+        echo "Namespace Status: ✅ Active"
+        
+        # Show interfaces in namespace
+        echo ""
+        echo "Interfaces in namespace:"
+        ip netns exec "$ns_name" ip link show 2>/dev/null || echo "  Failed to list interfaces"
+        
+        echo ""
+        echo "IP addresses in namespace:"
+        ip netns exec "$ns_name" ip addr show 2>/dev/null || echo "  Failed to show IP addresses"
+        
+        echo ""
+        echo "Routes in namespace:"
+        ip netns exec "$ns_name" ip route show 2>/dev/null || echo "  Failed to show routes"
+    else
+        echo "Namespace Status: ❌ Not found"
+    fi
+    
+    # Check host veth
+    if ip link show "$veth_host" >/dev/null 2>&1; then
+        echo "Host veth Status: ✅ Active"
+    else
+        echo "Host veth Status: ❌ Not found"
+    fi
+    
+    echo "=================================================="
+}
+
+# List all container networks
+list_container_networks() {
+    echo "=== Container Network Overview ==="
+    echo "Network Subnet: $CONTAINER_NETWORK"
+    echo "Next Available IP: 10.0.0.$NEXT_IP_OCTET"
+    echo ""
+    
+    if [[ ${#CONTAINER_IPS[@]} -eq 0 ]]; then
+        echo "No containers with network configuration found."
+        return 0
+    fi
+    
+    echo "Active Container Networks:"
+    printf "%-20s %-15s %-20s %-10s\n" "CONTAINER" "IP ADDRESS" "NAMESPACE" "STATUS"
+    printf "%-20s %-15s %-20s %-10s\n" "--------" "----------" "---------" "------"
+    
+    for container_name in "${!CONTAINER_IPS[@]}"; do
+        local ip="${CONTAINER_IPS[$container_name]}"
+        local ns_name="container-$container_name"
+        local status="❌"
+        
+        if ip netns list | grep -q "$ns_name"; then
+            status="✅"
+        fi
+        
+        printf "%-20s %-15s %-20s %-10s\n" "$container_name" "$ip" "$ns_name" "$status"
+    done
+    
+    echo ""
+    echo "Network Connectivity Test:"
+    echo "Use: $0 test-network <container1> <container2>"
+    echo "=================================="
+}
+
+# Network monitoring and debugging tools
+monitor_container_network() {
+    local container_name=$1
+    local duration=${2:-10}
+    
+    log_info "Monitoring network for container: $container_name (${duration}s)" \
+             "Seperti RT yang memantau aktivitas telepon rumah"
+    
+    local ns_name="container-$container_name"
+    
+    if ! ip netns list | grep -q "$ns_name"; then
+        log_error "Network namespace not found: $ns_name" \
+                  "Sistem telepon rumah tidak ditemukan"
+        return 1
+    fi
+    
+    echo "=== Network Monitoring for $container_name ==="
+    echo "Duration: ${duration} seconds"
+    echo "Press Ctrl+C to stop early"
+    echo ""
+    
+    # Monitor network interfaces
+    echo "Network Interfaces:"
+    ip netns exec "$ns_name" ip link show
+    echo ""
+    
+    echo "IP Addresses:"
+    ip netns exec "$ns_name" ip addr show
+    echo ""
+    
+    echo "Routing Table:"
+    ip netns exec "$ns_name" ip route show
+    echo ""
+    
+    echo "Network Statistics (updating every 2 seconds):"
+    for ((i=0; i<duration; i+=2)); do
+        echo "--- Time: ${i}s ---"
+        ip netns exec "$ns_name" cat /proc/net/dev 2>/dev/null | grep -E "(veth|lo)" || echo "No network activity"
+        sleep 2
+    done
+    
+    echo "=== Monitoring Complete ==="
+}
+
+# Debug network issues
+debug_container_network() {
+    local container_name=$1
+    
+    log_info "Debugging network for container: $container_name" \
+             "Seperti RT yang memeriksa masalah sistem telepon rumah"
+    
+    local ns_name="container-$container_name"
+    local veth_host="veth-${container_name}"
+    local veth_container="veth-${container_name}-c"
+    local container_ip="${CONTAINER_IPS[$container_name]}"
+    
+    echo "=== Network Debug Information ==="
+    echo "Container: $container_name"
+    echo "Expected IP: ${container_ip:-Not assigned}"
+    echo ""
+    
+    # Check namespace
+    echo "1. Network Namespace Check:"
+    if ip netns list | grep -q "$ns_name"; then
+        echo "   ✅ Namespace exists: $ns_name"
+    else
+        echo "   ❌ Namespace missing: $ns_name"
+        echo "   💡 Solution: Run container creation again"
+    fi
+    echo ""
+    
+    # Check host veth
+    echo "2. Host veth Interface Check:"
+    if ip link show "$veth_host" >/dev/null 2>&1; then
+        echo "   ✅ Host veth exists: $veth_host"
+        echo "   Status: $(ip link show "$veth_host" | grep -o 'state [A-Z]*' | cut -d' ' -f2)"
+    else
+        echo "   ❌ Host veth missing: $veth_host"
+        echo "   💡 Solution: Recreate veth pair"
+    fi
+    echo ""
+    
+    # Check container veth (if namespace exists)
+    echo "3. Container veth Interface Check:"
+    if ip netns list | grep -q "$ns_name"; then
+        if ip netns exec "$ns_name" ip link show "$veth_container" >/dev/null 2>&1; then
+            echo "   ✅ Container veth exists: $veth_container"
+            echo "   Status: $(ip netns exec "$ns_name" ip link show "$veth_container" | grep -o 'state [A-Z]*' | cut -d' ' -f2)"
+        else
+            echo "   ❌ Container veth missing: $veth_container"
+            echo "   💡 Solution: Recreate veth pair"
+        fi
+    else
+        echo "   ⚠️  Cannot check (namespace missing)"
+    fi
+    echo ""
+    
+    # Check IP assignment
+    echo "4. IP Address Check:"
+    if [[ -n "$container_ip" ]] && ip netns list | grep -q "$ns_name"; then
+        if ip netns exec "$ns_name" ip addr show | grep -q "$container_ip"; then
+            echo "   ✅ IP address assigned: $container_ip"
+        else
+            echo "   ❌ IP address not assigned: $container_ip"
+            echo "   💡 Solution: Reassign IP address"
+        fi
+    else
+        echo "   ⚠️  Cannot check (IP not configured or namespace missing)"
+    fi
+    echo ""
+    
+    # Check connectivity to other containers
+    echo "5. Connectivity Check:"
+    if [[ ${#CONTAINER_IPS[@]} -gt 1 ]]; then
+        for other_container in "${!CONTAINER_IPS[@]}"; do
+            if [[ "$other_container" != "$container_name" ]]; then
+                local other_ip="${CONTAINER_IPS[$other_container]}"
+                echo "   Testing connectivity to $other_container ($other_ip):"
+                if ip netns exec "$ns_name" ping -c 1 -W 1 "$other_ip" >/dev/null 2>&1; then
+                    echo "   ✅ Can reach $other_container"
+                else
+                    echo "   ❌ Cannot reach $other_container"
+                    echo "   💡 Check if $other_container network is properly configured"
+                fi
+            fi
+        done
+    else
+        echo "   ⚠️  No other containers to test connectivity"
+    fi
+    
+    echo "=================================="
+}
+
+# =============================================================================
 # CGROUP RESOURCE MANAGEMENT FUNCTIONS
 # =============================================================================
 
@@ -1911,33 +2462,247 @@ list_container_namespaces() {
 }
 
 # =============================================================================
+# NETWORK UTILITY COMMANDS
+# =============================================================================
+
+# Test network functionality
+test_network_functionality() {
+    log_info "Testing network functionality" \
+             "Seperti RT yang menguji sistem telepon kompleks"
+    
+    # Test 1: Check if ip command is available
+    if ! command -v ip &> /dev/null; then
+        log_error "ip command not found - required for network operations" \
+                  "Perintah 'ip' tidak ditemukan - diperlukan untuk sistem telepon"
+        return 1
+    fi
+    
+    # Test 2: Check if we can create a test namespace
+    local test_ns="rt-test-$$"
+    if ip netns add "$test_ns" 2>/dev/null; then
+        log_info "Network namespace creation test: ✅ PASSED"
+        ip netns delete "$test_ns" 2>/dev/null
+    else
+        log_error "Network namespace creation test: ❌ FAILED" \
+                  "Tidak bisa membuat sistem telepon test"
+        return 1
+    fi
+    
+    # Test 3: Check if we can create veth pairs
+    local test_veth="rt-test-veth-$$"
+    if ip link add "${test_veth}-a" type veth peer name "${test_veth}-b" 2>/dev/null; then
+        log_info "Veth pair creation test: ✅ PASSED"
+        ip link delete "${test_veth}-a" 2>/dev/null
+    else
+        log_error "Veth pair creation test: ❌ FAILED" \
+                  "Tidak bisa membuat kabel telepon test"
+        return 1
+    fi
+    
+    log_success "All network functionality tests passed" \
+                "Semua tes sistem telepon berhasil"
+    return 0
+}
+
+# Create a test network setup for demonstration
+create_test_network() {
+    local container1=${1:-"test-container-1"}
+    local container2=${2:-"test-container-2"}
+    
+    log_info "Creating test network setup" \
+             "Seperti RT yang membuat demo sistem telepon untuk 2 rumah"
+    
+    # Create directories for test containers
+    create_directory "$CONTAINERS_DIR/$container1/namespaces"
+    create_directory "$CONTAINERS_DIR/$container2/namespaces"
+    
+    # Setup network for first container
+    if ! setup_container_network "$container1" "10.0.0.10"; then
+        log_error "Failed to setup network for $container1"
+        return 1
+    fi
+    
+    # Setup network for second container
+    if ! setup_container_network "$container2" "10.0.0.11"; then
+        log_error "Failed to setup network for $container2"
+        cleanup_container_network "$container1"
+        return 1
+    fi
+    
+    # Test connectivity
+    if test_container_connectivity "$container1" "$container2"; then
+        log_success "Test network setup completed successfully" \
+                    "Demo sistem telepon berhasil - kedua rumah bisa saling menelepon"
+        
+        echo ""
+        echo "=== Test Network Created ==="
+        echo "Container 1: $container1 (10.0.0.10)"
+        echo "Container 2: $container2 (10.0.0.11)"
+        echo ""
+        echo "Test commands:"
+        echo "  Show network info: $0 show-network $container1"
+        echo "  Test connectivity: $0 test-connectivity $container1 $container2"
+        echo "  Monitor network: $0 monitor-network $container1"
+        echo "  Debug network: $0 debug-network $container1"
+        echo "  Cleanup: $0 cleanup-test-network"
+        echo "=========================="
+        
+        return 0
+    else
+        log_error "Test network connectivity failed"
+        cleanup_container_network "$container1"
+        cleanup_container_network "$container2"
+        return 1
+    fi
+}
+
+# Cleanup test network
+cleanup_test_network() {
+    log_info "Cleaning up test network" \
+             "Seperti RT yang membersihkan demo sistem telepon"
+    
+    local containers=("test-container-1" "test-container-2")
+    
+    for container in "${containers[@]}"; do
+        if [[ -d "$CONTAINERS_DIR/$container" ]]; then
+            cleanup_container_network "$container"
+            rm -rf "$CONTAINERS_DIR/$container"
+            log_debug "Cleaned up test container: $container"
+        fi
+    done
+    
+    log_success "Test network cleanup completed" \
+                "Demo sistem telepon berhasil dibersihkan"
+}
+
+# =============================================================================
 # MAIN ENTRY POINT PLACEHOLDER
 # =============================================================================
 
+# Show usage information
+show_usage() {
+    cat << EOF
+RT (Rukun Tetangga) Container Runtime v$SCRIPT_VERSION
+Educational container runtime using Linux namespaces and cgroups
+
+USAGE:
+    $0 <command> [options]
+
+NETWORK COMMANDS (Task 6 Implementation):
+    test-network                    Test network functionality
+    create-test-network [name1] [name2]  Create test network with 2 containers
+    cleanup-test-network            Cleanup test network
+    show-network <container>        Show network info for container
+    test-connectivity <cont1> <cont2>  Test connectivity between containers
+    monitor-network <container> [duration]  Monitor network activity
+    debug-network <container>       Debug network issues
+    list-networks                   List all container networks
+
+EXAMPLES:
+    $0 test-network
+    $0 create-test-network
+    $0 show-network test-container-1
+    $0 test-connectivity test-container-1 test-container-2
+    $0 monitor-network test-container-1 30
+    $0 debug-network test-container-1
+    $0 cleanup-test-network
+
+ANALOGY:
+    RT Container Runtime seperti Rukun Tetangga (RT) yang mengatur kompleks perumahan.
+    Setiap container adalah rumah dengan sistem telepon sendiri untuk komunikasi.
+
+For more information, visit: https://github.com/container-learning/rt-runtime
+EOF
+}
+
 # Main function (to be implemented in later tasks)
 main() {
-    log_info "RT Container Runtime v$SCRIPT_VERSION starting..." \
-             "Seperti RT yang mulai bertugas mengatur kompleks perumahan"
+    local command=${1:-""}
+    
+    # Show usage if no command provided
+    if [[ -z "$command" ]]; then
+        show_usage
+        exit 0
+    fi
     
     # Setup signal handlers
     setup_signal_handlers
     
-    # Check dependencies and privileges
-    check_dependencies
-    check_privileges
+    # Check dependencies and privileges for network commands
+    case "$command" in
+        test-network|create-test-network|cleanup-test-network|show-network|test-connectivity|monitor-network|debug-network|list-networks)
+            check_dependencies
+            check_privileges
+            ;;
+    esac
     
     # Create base directories
     create_directory "$CONTAINERS_DIR"
     
-    # Initialize busybox management system
-    if ! init_busybox_system; then
-        log_error "Failed to initialize busybox system" \
-                  "Gagal menyiapkan peralatan dasar 'busybox' untuk kompleks RT"
-        exit 1
-    fi
-    
-    log_success "RT Container time foundation initialized" \
-                "RT siap menjalankan tugas pengelolaan kompleks 'container'"
+    # Handle commands
+    case "$command" in
+        "test-network")
+            test_network_functionality
+            ;;
+        "create-test-network")
+            local container1=${2:-"test-container-1"}
+            local container2=${3:-"test-container-2"}
+            create_test_network "$container1" "$container2"
+            ;;
+        "cleanup-test-network")
+            cleanup_test_network
+            ;;
+        "show-network")
+            local container_name=$2
+            if [[ -z "$container_name" ]]; then
+                log_error "Container name required for show-network command"
+                echo "Usage: $0 show-network <container_name>"
+                exit 1
+            fi
+            show_container_network_info "$container_name"
+            ;;
+        "test-connectivity")
+            local container1=$2
+            local container2=$3
+            if [[ -z "$container1" || -z "$container2" ]]; then
+                log_error "Two container names required for test-connectivity command"
+                echo "Usage: $0 test-connectivity <container1> <container2>"
+                exit 1
+            fi
+            test_container_connectivity "$container1" "$container2"
+            ;;
+        "monitor-network")
+            local container_name=$2
+            local duration=${3:-10}
+            if [[ -z "$container_name" ]]; then
+                log_error "Container name required for monitor-network command"
+                echo "Usage: $0 monitor-network <container_name> [duration]"
+                exit 1
+            fi
+            monitor_container_network "$container_name" "$duration"
+            ;;
+        "debug-network")
+            local container_name=$2
+            if [[ -z "$container_name" ]]; then
+                log_error "Container name required for debug-network command"
+                echo "Usage: $0 debug-network <container_name>"
+                exit 1
+            fi
+            debug_container_network "$container_name"
+            ;;
+        "list-networks")
+            list_container_networks
+            ;;
+        "help"|"--help"|"-h")
+            show_usage
+            ;;
+        *)
+            log_error "Unknown command: $command"
+            echo ""
+            show_usage
+            exit 1
+            ;;
+    esac
 }
 
 # Only run main if script is executed directly (not sourced)

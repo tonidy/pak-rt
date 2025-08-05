@@ -39,7 +39,7 @@
   - Write resource usage reporting dengan analogi "Tagihan listrik dan air"
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
 
-- [ ] 6. Implement network namespace dan container communication
+- [x] 6. Implement network namespace dan container communication
   - Create network namespace untuk setiap container
   - Implement veth pair creation untuk container-to-container communication
   - Setup IP addressing dengan 10.0.0.x subnet ("Nomor telepon rumah")
