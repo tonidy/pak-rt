@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  rt-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: pak-rt-dev
+    privileged: true
+    volumes:
+      # Mount code directory untuk live development
+      - .:/workspace
+      # Mount cgroup filesystem untuk resource management
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+      # Mount untuk temporary container data
+      - rt-tmp:/tmp/containers
+    working_dir: /workspace
+    environment:
+      # Development environment variables
+      - CONTAINER_RUNTIME_ENV=development
+      - BUSYBOX_URL=https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/busybox
+    # Keep container running untuk interactive development
+    stdin_open: true
+    tty: true
+    # Use host network untuk testing network features
+    network_mode: host
+    # Security options untuk namespace operations
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
+    # Capabilities required untuk container operations
+    cap_add:
+      - SYS_ADMIN
+      - NET_ADMIN
+      - SYS_PTRACE
+      - SYS_CHROOT
+    # Default command
+    command: /bin/bash
+
+volumes:
+  rt-tmp:
+    driver: local
