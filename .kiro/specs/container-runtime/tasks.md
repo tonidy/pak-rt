@@ -14,14 +14,14 @@
   - Implement input validation dan error handling utilities
   - _Requirements: 6.1, 6.4_
 
-- [ ] 3. Implement busybox management system
+- [x] 3. Implement busybox management system
   - Create function untuk download busybox static binary dari official source
   - Implement checksum verification untuk security
   - Create busybox installation dan setup functions
   - Write tests untuk busybox functionality
   - _Requirements: 4.1, 4.2, 4.4_
 
-- [ ] 4. Implement namespace management functions
+- [x] 4. Implement namespace management functions
   - Create function untuk setup PID namespace dengan analogi "Ayah nomor 1 di rumah"
   - Implement mount namespace dengan isolated filesystem
   - Create UTS namespace untuk hostname isolation ("Nama rumah sendiri")
@@ -30,7 +30,7 @@
   - Write comprehensive namespace cleanup functions
   - _Requirements: 1.1, 1.2, 1.3, 1.4_
 
-- [ ] 5. Implement cgroup resource management
+- [-] 5. Implement cgroup resource management
   - Create cgroup directory structure untuk memory dan CPU control
   - Implement memory limit functions dengan validation ("Pembatasan listrik rumah")
   - Create CPU limit functions dengan percentage-based control

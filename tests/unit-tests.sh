@@ -110,6 +110,26 @@ else
     ((UNIT_TESTS_FAILED++))
 fi
 
+# Test 5: Run Busybox Management System Tests
+echo -e "\n${YELLOW}Testing Busybox Management System...${NC}"
+
+if [ -x "$TEST_DIR/busybox-tests.sh" ]; then
+    echo -e "${GREEN}✅ busybox-tests.sh is executable${NC}"
+    ((UNIT_TESTS_PASSED++))
+    
+    # Run busybox tests and capture results
+    if "$TEST_DIR/busybox-tests.sh"; then
+        echo -e "${GREEN}✅ Busybox management system tests passed${NC}"
+        ((UNIT_TESTS_PASSED++))
+    else
+        echo -e "${RED}❌ Busybox management system tests failed${NC}"
+        ((UNIT_TESTS_FAILED++))
+    fi
+else
+    echo -e "${RED}❌ busybox-tests.sh not found or not executable${NC}"
+    ((UNIT_TESTS_FAILED++))
+fi
+
 # Summary
 echo -e "\n===================================================="
 echo -e "Unit Test Summary:"
