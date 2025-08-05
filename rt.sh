@@ -908,6 +908,611 @@ setup_container_namespaces() {
     return 0
 }
 
+# =============================================================================
+# CGROUP RESOURCE MANAGEMENT FUNCTIONS
+# =============================================================================
+
+# Global cgroup tracking for cleanup
+declare -A ACTIVE_CGROUPS
+
+# Create cgroup directory structure for memory and CPU control
+create_cgroup_structure() {
+    local container_name=$1
+    local memory_mb=$2
+    local cpu_percent=$3
+    
+    log_step 1 "Creating cgroup structure for container: $container_name" \
+              "Seperti RT yang menyiapkan sistem pembatasan listrik dan air untuk rumah baru"
+    
+    # Validate inputs
+    validate_memory_limit "$memory_mb" || return 1
+    validate_cpu_percentage "$cpu_percent" || return 1
+    
+    # Create cgroup directories
+    local memory_cgroup="$CGROUP_ROOT/memory/container-$container_name"
+    local cpu_cgroup="$CGROUP_ROOT/cpu/container-$container_name"
+    
+    log_info "Creating memory cgroup: $memory_cgroup" \
+             "Seperti menyiapkan meteran listrik khusus untuk rumah"
+    
+    if ! create_directory "$memory_cgroup" 755; then
+        log_error "Failed to create memory cgroup directory" \
+                  "Gagal menyiapkan meteran listrik rumah"
+        return 1
+    fi
+    
+    log_info "Creating CPU cgroup: $cpu_cgroup" \
+             "Seperti menyiapkan pembagi waktu kerja untuk rumah"
+    
+    if ! create_directory "$cpu_cgroup" 755; then
+        log_error "Failed to create CPU cgroup directory" \
+                  "Gagal menyiapkan pembagi waktu kerja rumah"
+        return 1
+    fi
+    
+    # Store cgroup paths for later use
+    local cgroup_dir="$CONTAINERS_DIR/$container_name/cgroups"
+    create_directory "$cgroup_dir"
+    
+    cat > "$cgroup_dir/paths.conf" << EOF
+memory_cgroup=$memory_cgroup
+cpu_cgroup=$cpu_cgroup
+memory_limit_mb=$memory_mb
+cpu_limit_percent=$cpu_percent
+EOF
+    
+    # Mark cgroups as active for cleanup tracking
+    ACTIVE_CGROUPS["$container_name"]="memory,cpu"
+    
+    log_success "Cgroup structure created successfully" \
+                "Sistem pembatasan listrik dan waktu kerja rumah siap"
+    
+    return 0
+}
+
+# Implement memory limit functions with validation
+set_memory_limit() {
+    local container_name=$1
+    local memory_mb=$2
+    
+    log_step 2 "Setting memory limit for container: $container_name to ${memory_mb}MB" \
+              "Seperti RT yang mengatur batas pemakaian listrik rumah: ${memory_mb}MB"
+    
+    # Validate memory limit
+    validate_memory_limit "$memory_mb" || return 1
+    
+    local memory_cgroup="$CGROUP_ROOT/memory/container-$container_name"
+    
+    # Check if cgroup exists
+    if [[ ! -d "$memory_cgroup" ]]; then
+        log_error "Memory cgroup does not exist: $memory_cgroup" \
+                  "Meteran listrik rumah belum dipasang"
+        return 1
+    fi
+    
+    # Convert MB to bytes
+    local memory_bytes=$((memory_mb * 1024 * 1024))
+    
+    log_info "Setting memory limit to $memory_bytes bytes" \
+             "Seperti mengatur batas listrik rumah: ${memory_mb}MB"
+    
+    # Set memory limit
+    if ! echo "$memory_bytes" > "$memory_cgroup/memory.limit_in_bytes"; then
+        log_error "Failed to set memory limit" \
+                  "Gagal mengatur batas pemakaian listrik rumah"
+        return 1
+    fi
+    
+    # Set memory+swap limit (same as memory to prevent swap usage)
+    if [[ -f "$memory_cgroup/memory.memsw.limit_in_bytes" ]]; then
+        if ! echo "$memory_bytes" > "$memory_cgroup/memory.memsw.limit_in_bytes"; then
+            log_warn "Failed to set memory+swap limit, continuing without swap limit" \
+                     "Tidak bisa mengatur batas swap, tapi listrik utama sudah dibatasi"
+        fi
+    fi
+    
+    # Enable OOM killer for the cgroup
+    if [[ -f "$memory_cgroup/memory.oom_control" ]]; then
+        echo 0 > "$memory_cgroup/memory.oom_control" 2>/dev/null || true
+    fi
+    
+    # Verify the limit was set correctly
+    local actual_limit
+    if actual_limit=$(cat "$memory_cgroup/memory.limit_in_bytes" 2>/dev/null); then
+        local actual_mb=$((actual_limit / 1024 / 1024))
+        log_info "Memory limit verified: ${actual_mb}MB" \
+                 "Batas listrik rumah terpasang: ${actual_mb}MB"
+    else
+        log_warn "Could not verify memory limit" \
+                 "Tidak bisa memverifikasi batas listrik"
+    fi
+    
+    log_success "Memory limit set successfully: ${memory_mb}MB" \
+                "Batas pemakaian listrik rumah berhasil diatur: ${memory_mb}MB"
+    
+    return 0
+}
+
+# Create CPU limit functions with percentage-based control
+set_cpu_limit() {
+    local container_name=$1
+    local cpu_percent=$2
+    
+    log_step 3 "Setting CPU limit for container: $container_name to ${cpu_percent}%" \
+              "Seperti RT yang mengatur pembagian waktu kerja rumah: ${cpu_percent}%"
+    
+    # Validate CPU percentage
+    validate_cpu_percentage "$cpu_percent" || return 1
+    
+    local cpu_cgroup="$CGROUP_ROOT/cpu/container-$container_name"
+    
+    # Check if cgroup exists
+    if [[ ! -d "$cpu_cgroup" ]]; then
+        log_error "CPU cgroup does not exist: $cpu_cgroup" \
+                  "Pembagi waktu kerja rumah belum dipasang"
+        return 1
+    fi
+    
+    # CPU cgroup uses CFS (Completely Fair Scheduler)
+    # Period is typically 100000 microseconds (100ms)
+    local cfs_period=100000
+    local cfs_quota=$((cfs_period * cpu_percent / 100))
+    
+    log_info "Setting CPU quota to $cfs_quota/$cfs_period (${cpu_percent}%)" \
+             "Seperti mengatur waktu kerja: ${cpu_percent}% dari total waktu"
+    
+    # Set CFS period
+    if ! echo "$cfs_period" > "$cpu_cgroup/cpu.cfs_period_us"; then
+        log_error "Failed to set CPU period" \
+                  "Gagal mengatur periode waktu kerja"
+        return 1
+    fi
+    
+    # Set CFS quota
+    if ! echo "$cfs_quota" > "$cpu_cgroup/cpu.cfs_quota_us"; then
+        log_error "Failed to set CPU quota" \
+                  "Gagal mengatur kuota waktu kerja"
+        return 1
+    fi
+    
+    # Set CPU shares (relative weight, 1024 = 100%)
+    local cpu_shares=$((1024 * cpu_percent / 100))
+    if [[ -f "$cpu_cgroup/cpu.shares" ]]; then
+        if ! echo "$cpu_shares" > "$cpu_cgroup/cpu.shares"; then
+            log_warn "Failed to set CPU shares, continuing with quota only" \
+                     "Tidak bisa mengatur bobot relatif, tapi kuota sudah diatur"
+        fi
+    fi
+    
+    # Verify the limit was set correctly
+    local actual_period actual_quota
+    if actual_period=$(cat "$cpu_cgroup/cpu.cfs_period_us" 2>/dev/null) && \
+       actual_quota=$(cat "$cpu_cgroup/cpu.cfs_quota_us" 2>/dev/null); then
+        local actual_percent=$((actual_quota * 100 / actual_period))
+        log_info "CPU limit verified: ${actual_percent}%" \
+                 "Pembagian waktu kerja terpasang: ${actual_percent}%"
+    else
+        log_warn "Could not verify CPU limit" \
+                 "Tidak bisa memverifikasi pembagian waktu kerja"
+    fi
+    
+    log_success "CPU limit set successfully: ${cpu_percent}%" \
+                "Pembagian waktu kerja rumah berhasil diatur: ${cpu_percent}%"
+    
+    return 0
+}
+
+# Implement process assignment to cgroups
+assign_process_to_cgroups() {
+    local container_name=$1
+    local pid=$2
+    
+    log_step 4 "Assigning process $pid to cgroups for container: $container_name" \
+              "Seperti RT yang mendaftarkan penghuni rumah ke sistem pembatasan"
+    
+    # Validate PID
+    if [[ ! "$pid" =~ ^[0-9]+$ ]] || [[ $pid -le 0 ]]; then
+        log_error "Invalid PID: $pid" \
+                  "Nomor penghuni tidak valid"
+        return 1
+    fi
+    
+    # Check if process exists
+    if ! kill -0 "$pid" 2>/dev/null; then
+        log_error "Process $pid does not exist" \
+                  "Penghuni dengan nomor $pid tidak ditemukan"
+        return 1
+    fi
+    
+    local memory_cgroup="$CGROUP_ROOT/memory/container-$container_name"
+    local cpu_cgroup="$CGROUP_ROOT/cpu/container-$container_name"
+    
+    # Assign to memory cgroup
+    log_info "Assigning process $pid to memory cgroup" \
+             "Mendaftarkan penghuni $pid ke meteran listrik rumah"
+    
+    if [[ -f "$memory_cgroup/cgroup.procs" ]]; then
+        if ! echo "$pid" > "$memory_cgroup/cgroup.procs"; then
+            log_error "Failed to assign process to memory cgroup" \
+                      "Gagal mendaftarkan penghuni ke meteran listrik"
+            return 1
+        fi
+    else
+        log_error "Memory cgroup procs file not found" \
+                  "File pendaftaran meteran listrik tidak ditemukan"
+        return 1
+    fi
+    
+    # Assign to CPU cgroup
+    log_info "Assigning process $pid to CPU cgroup" \
+             "Mendaftarkan penghuni $pid ke pembagi waktu kerja rumah"
+    
+    if [[ -f "$cpu_cgroup/cgroup.procs" ]]; then
+        if ! echo "$pid" > "$cpu_cgroup/cgroup.procs"; then
+            log_error "Failed to assign process to CPU cgroup" \
+                      "Gagal mendaftarkan penghuni ke pembagi waktu kerja"
+            return 1
+        fi
+    else
+        log_error "CPU cgroup procs file not found" \
+                  "File pendaftaran pembagi waktu kerja tidak ditemukan"
+        return 1
+    fi
+    
+    # Verify assignment
+    local memory_procs cpu_procs
+    memory_procs=$(cat "$memory_cgroup/cgroup.procs" 2>/dev/null | grep "^$pid$" || true)
+    cpu_procs=$(cat "$cpu_cgroup/cgroup.procs" 2>/dev/null | grep "^$pid$" || true)
+    
+    if [[ -n "$memory_procs" ]] && [[ -n "$cpu_procs" ]]; then
+        log_success "Process $pid successfully assigned to all cgroups" \
+                    "Penghuni $pid berhasil terdaftar di semua sistem pembatasan rumah"
+    else
+        log_warn "Process assignment verification incomplete" \
+                 "Pendaftaran penghuni mungkin belum lengkap"
+    fi
+    
+    return 0
+}
+
+# Create cgroup cleanup and monitoring functions
+cleanup_container_cgroups() {
+    local container_name=$1
+    
+    log_step 5 "Cleaning up cgroups for container: $container_name" \
+              "Seperti RT yang membersihkan sistem pembatasan rumah yang sudah kosong"
+    
+    local memory_cgroup="$CGROUP_ROOT/memory/container-$container_name"
+    local cpu_cgroup="$CGROUP_ROOT/cpu/container-$container_name"
+    
+    # Kill any remaining processes in the cgroups
+    log_info "Terminating remaining processes in cgroups" \
+             "Mengeluarkan penghuni yang masih tersisa di rumah"
+    
+    # Kill processes in memory cgroup
+    if [[ -f "$memory_cgroup/cgroup.procs" ]]; then
+        local pids
+        pids=$(cat "$memory_cgroup/cgroup.procs" 2>/dev/null || true)
+        if [[ -n "$pids" ]]; then
+            for pid in $pids; do
+                if kill -0 "$pid" 2>/dev/null; then
+                    log_debug "Terminating process $pid from memory cgroup"
+                    kill -TERM "$pid" 2>/dev/null || true
+                    sleep 0.1
+                    kill -KILL "$pid" 2>/dev/null || true
+                fi
+            done
+        fi
+    fi
+    
+    # Kill processes in CPU cgroup
+    if [[ -f "$cpu_cgroup/cgroup.procs" ]]; then
+        local pids
+        pids=$(cat "$cpu_cgroup/cgroup.procs" 2>/dev/null || true)
+        if [[ -n "$pids" ]]; then
+            for pid in $pids; do
+                if kill -0 "$pid" 2>/dev/null; then
+                    log_debug "Terminating process $pid from CPU cgroup"
+                    kill -TERM "$pid" 2>/dev/null || true
+                    sleep 0.1
+                    kill -KILL "$pid" 2>/dev/null || true
+                fi
+            done
+        fi
+    fi
+    
+    # Wait a moment for processes to exit
+    sleep 0.5
+    
+    # Remove memory cgroup
+    if [[ -d "$memory_cgroup" ]]; then
+        log_info "Removing memory cgroup: $memory_cgroup" \
+                 "Melepas meteran listrik rumah"
+        
+        # Ensure no processes remain
+        if [[ -f "$memory_cgroup/cgroup.procs" ]]; then
+            local remaining_procs
+            remaining_procs=$(cat "$memory_cgroup/cgroup.procs" 2>/dev/null | wc -l)
+            if [[ $remaining_procs -gt 0 ]]; then
+                log_warn "Still $remaining_procs processes in memory cgroup, force removing" \
+                         "Masih ada $remaining_procs penghuni, paksa mengeluarkan"
+                echo > "$memory_cgroup/cgroup.procs" 2>/dev/null || true
+            fi
+        fi
+        
+        if ! rmdir "$memory_cgroup" 2>/dev/null; then
+            log_warn "Failed to remove memory cgroup directory" \
+                     "Tidak bisa melepas meteran listrik, mungkin masih ada penghuni"
+        else
+            log_debug "Memory cgroup removed successfully"
+        fi
+    fi
+    
+    # Remove CPU cgroup
+    if [[ -d "$cpu_cgroup" ]]; then
+        log_info "Removing CPU cgroup: $cpu_cgroup" \
+                 "Melepas pembagi waktu kerja rumah"
+        
+        # Ensure no processes remain
+        if [[ -f "$cpu_cgroup/cgroup.procs" ]]; then
+            local remaining_procs
+            remaining_procs=$(cat "$cpu_cgroup/cgroup.procs" 2>/dev/null | wc -l)
+            if [[ $remaining_procs -gt 0 ]]; then
+                log_warn "Still $remaining_procs processes in CPU cgroup, force removing" \
+                         "Masih ada $remaining_procs penghuni, paksa mengeluarkan"
+                echo > "$cpu_cgroup/cgroup.procs" 2>/dev/null || true
+            fi
+        fi
+        
+        if ! rmdir "$cpu_cgroup" 2>/dev/null; then
+            log_warn "Failed to remove CPU cgroup directory" \
+                     "Tidak bisa melepas pembagi waktu kerja, mungkin masih ada penghuni"
+        else
+            log_debug "CPU cgroup removed successfully"
+        fi
+    fi
+    
+    # Remove from active cgroups tracking
+    unset ACTIVE_CGROUPS["$container_name"]
+    
+    log_success "Cgroup cleanup completed for container: $container_name" \
+                "Sistem pembatasan rumah berhasil dibersihkan dan dilepas"
+    
+    return 0
+}
+
+# Write resource usage reporting with "Tagihan listrik dan air" analogy
+get_container_resource_usage() {
+    local container_name=$1
+    
+    log_info "Getting resource usage for container: $container_name" \
+             "Seperti RT yang mengecek tagihan listrik dan air rumah"
+    
+    local memory_cgroup="$CGROUP_ROOT/memory/container-$container_name"
+    local cpu_cgroup="$CGROUP_ROOT/cpu/container-$container_name"
+    
+    # Check if cgroups exist
+    if [[ ! -d "$memory_cgroup" ]] || [[ ! -d "$cpu_cgroup" ]]; then
+        log_error "Cgroups not found for container: $container_name" \
+                  "Meteran rumah tidak ditemukan"
+        return 1
+    fi
+    
+    echo "=== Resource Usage Report for Container: $container_name ==="
+    echo "🏠 Tagihan Listrik dan Air Rumah: $container_name"
+    echo ""
+    
+    # Memory usage report
+    echo "💡 LISTRIK (Memory Usage):"
+    if [[ -f "$memory_cgroup/memory.usage_in_bytes" ]] && [[ -f "$memory_cgroup/memory.limit_in_bytes" ]]; then
+        local usage_bytes limit_bytes
+        usage_bytes=$(cat "$memory_cgroup/memory.usage_in_bytes" 2>/dev/null || echo "0")
+        limit_bytes=$(cat "$memory_cgroup/memory.limit_in_bytes" 2>/dev/null || echo "0")
+        
+        local usage_mb=$((usage_bytes / 1024 / 1024))
+        local limit_mb=$((limit_bytes / 1024 / 1024))
+        local usage_percent=0
+        
+        if [[ $limit_bytes -gt 0 ]]; then
+            usage_percent=$((usage_bytes * 100 / limit_bytes))
+        fi
+        
+        echo "   📊 Pemakaian: ${usage_mb}MB / ${limit_mb}MB (${usage_percent}%)"
+        
+        # Memory usage bar
+        local bar_length=20
+        local filled_length=$((usage_percent * bar_length / 100))
+        local bar=""
+        for ((i=0; i<filled_length; i++)); do bar+="█"; done
+        for ((i=filled_length; i<bar_length; i++)); do bar+="░"; done
+        echo "   📈 Grafik: [$bar] ${usage_percent}%"
+        
+        # Memory status
+        if [[ $usage_percent -lt 50 ]]; then
+            echo "   ✅ Status: Normal (pemakaian listrik wajar)"
+        elif [[ $usage_percent -lt 80 ]]; then
+            echo "   ⚠️  Status: Tinggi (perlu perhatian RT)"
+        else
+            echo "   🚨 Status: Kritis (hampir melebihi batas)"
+        fi
+    else
+        echo "   ❌ Data pemakaian listrik tidak tersedia"
+    fi
+    
+    echo ""
+    
+    # CPU usage report
+    echo "⚡ WAKTU KERJA (CPU Usage):"
+    if [[ -f "$cpu_cgroup/cpu.cfs_quota_us" ]] && [[ -f "$cpu_cgroup/cpu.cfs_period_us" ]]; then
+        local quota_us period_us
+        quota_us=$(cat "$cpu_cgroup/cpu.cfs_quota_us" 2>/dev/null || echo "-1")
+        period_us=$(cat "$cpu_cgroup/cpu.cfs_period_us" 2>/dev/null || echo "100000")
+        
+        if [[ $quota_us -gt 0 ]]; then
+            local cpu_limit_percent=$((quota_us * 100 / period_us))
+            echo "   📊 Batas Waktu Kerja: ${cpu_limit_percent}%"
+            
+            # Get CPU statistics if available
+            if [[ -f "$cpu_cgroup/cpuacct.usage" ]]; then
+                local cpu_usage_ns
+                cpu_usage_ns=$(cat "$cpu_cgroup/cpuacct.usage" 2>/dev/null || echo "0")
+                local cpu_usage_seconds=$((cpu_usage_ns / 1000000000))
+                echo "   ⏱️  Total Waktu Kerja: ${cpu_usage_seconds} detik"
+            fi
+            
+            # CPU usage bar (simplified, showing limit)
+            local bar_length=20
+            local filled_length=$((cpu_limit_percent * bar_length / 100))
+            local bar=""
+            for ((i=0; i<filled_length; i++)); do bar+="█"; done
+            for ((i=filled_length; i<bar_length; i++)); do bar+="░"; done
+            echo "   📈 Batas: [$bar] ${cpu_limit_percent}%"
+            
+            echo "   ✅ Status: Terbatas sesuai aturan RT"
+        else
+            echo "   ♾️  Batas Waktu Kerja: Tidak terbatas"
+            echo "   ⚠️  Status: Bebas (tidak ada pembatasan)"
+        fi
+    else
+        echo "   ❌ Data waktu kerja tidak tersedia"
+    fi
+    
+    echo ""
+    
+    # Process count
+    echo "👥 PENGHUNI RUMAH (Processes):"
+    local memory_procs=0 cpu_procs=0
+    
+    if [[ -f "$memory_cgroup/cgroup.procs" ]]; then
+        memory_procs=$(cat "$memory_cgroup/cgroup.procs" 2>/dev/null | wc -l)
+    fi
+    
+    if [[ -f "$cpu_cgroup/cgroup.procs" ]]; then
+        cpu_procs=$(cat "$cpu_cgroup/cgroup.procs" 2>/dev/null | wc -l)
+    fi
+    
+    echo "   👨‍👩‍👧‍👦 Jumlah Penghuni: $memory_procs proses"
+    
+    if [[ $memory_procs -eq $cpu_procs ]]; then
+        echo "   ✅ Status: Semua penghuni terdaftar dengan benar"
+    else
+        echo "   ⚠️  Status: Ada ketidaksesuaian pendaftaran ($memory_procs vs $cpu_procs)"
+    fi
+    
+    # List active processes if any
+    if [[ $memory_procs -gt 0 ]]; then
+        echo "   📋 Daftar Penghuni Aktif:"
+        if [[ -f "$memory_cgroup/cgroup.procs" ]]; then
+            local pids
+            pids=$(cat "$memory_cgroup/cgroup.procs" 2>/dev/null || true)
+            for pid in $pids; do
+                if kill -0 "$pid" 2>/dev/null; then
+                    local cmd
+                    cmd=$(ps -p "$pid" -o comm= 2>/dev/null || echo "unknown")
+                    echo "      - PID $pid: $cmd"
+                fi
+            done
+        fi
+    fi
+    
+    echo ""
+    echo "=== End of Resource Usage Report ==="
+    echo "📝 Catatan RT: Laporan ini menunjukkan pemakaian sumber daya rumah secara real-time"
+    
+    return 0
+}
+
+# Monitor resource usage in real-time
+monitor_container_resources() {
+    local container_name=$1
+    local interval=${2:-5}
+    
+    log_info "Starting resource monitoring for container: $container_name (interval: ${interval}s)" \
+             "Seperti RT yang memantau pemakaian listrik dan air rumah secara berkala"
+    
+    if [[ ! "$interval" =~ ^[0-9]+$ ]] || [[ $interval -lt 1 ]]; then
+        log_error "Invalid monitoring interval: $interval" \
+                  "Interval pemantauan tidak valid"
+        return 1
+    fi
+    
+    local memory_cgroup="$CGROUP_ROOT/memory/container-$container_name"
+    local cpu_cgroup="$CGROUP_ROOT/cpu/container-$container_name"
+    
+    # Check if cgroups exist
+    if [[ ! -d "$memory_cgroup" ]] || [[ ! -d "$cpu_cgroup" ]]; then
+        log_error "Cgroups not found for container: $container_name" \
+                  "Meteran rumah tidak ditemukan"
+        return 1
+    fi
+    
+    echo "🔍 Real-time Resource Monitoring for Container: $container_name"
+    echo "📊 Press Ctrl+C to stop monitoring"
+    echo "⏱️  Update interval: ${interval} seconds"
+    echo ""
+    
+    # Set up signal handler for clean exit
+    trap 'echo -e "\n👋 Monitoring stopped by user"; exit 0' INT
+    
+    while true; do
+        clear
+        echo "🏠 RT Container Resource Monitor - $(date)"
+        echo "Container: $container_name"
+        echo "=========================================="
+        
+        # Get current resource usage
+        get_container_resource_usage "$container_name" 2>/dev/null || {
+            echo "❌ Failed to get resource usage"
+            break
+        }
+        
+        echo ""
+        echo "🔄 Next update in ${interval} seconds... (Ctrl+C to stop)"
+        
+        sleep "$interval"
+    done
+    
+    return 0
+}
+
+# Setup complete cgroup system for container
+setup_container_cgroups() {
+    local container_name=$1
+    local memory_mb=$2
+    local cpu_percent=$3
+    
+    log_info "Setting up complete cgroup system for container: $container_name" \
+             "Seperti RT yang menyiapkan sistem pembatasan lengkap untuk rumah baru"
+    
+    # Create cgroup structure
+    if ! create_cgroup_structure "$container_name" "$memory_mb" "$cpu_percent"; then
+        log_error "Failed to create cgroup structure" \
+                  "Gagal menyiapkan struktur sistem pembatasan"
+        return 1
+    fi
+    
+    # Set memory limit
+    if ! set_memory_limit "$container_name" "$memory_mb"; then
+        log_error "Failed to set memory limit" \
+                  "Gagal mengatur batas pemakaian listrik"
+        cleanup_container_cgroups "$container_name"
+        return 1
+    fi
+    
+    # Set CPU limit
+    if ! set_cpu_limit "$container_name" "$cpu_percent"; then
+        log_error "Failed to set CPU limit" \
+                  "Gagal mengatur pembagian waktu kerja"
+        cleanup_container_cgroups "$container_name"
+        return 1
+    fi
+    
+    log_success "Complete cgroup system setup completed for container: $container_name" \
+                "Sistem pembatasan lengkap rumah siap: listrik ${memory_mb}MB, waktu kerja ${cpu_percent}%"
+    
+    return 0
+}
+
 # Apply mount namespace configuration during container start
 apply_mount_namespace() {
     local container_name=$1
