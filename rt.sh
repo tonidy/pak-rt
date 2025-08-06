@@ -226,6 +226,550 @@ log_success() {
 }
 
 # =============================================================================
+# COMPREHENSIVE ERROR HANDLING AND RECOVERY SYSTEM
+# =============================================================================
+
+# Error tracking and recovery state
+declare -A ERROR_CONTEXT=()
+declare -A ROLLBACK_STACK=()
+declare -A RECOVERY_ACTIONS=()
+CURRENT_OPERATION=""
+OPERATION_START_TIME=""
+
+# Error categories for better handling
+readonly ERROR_PERMISSION=1
+readonly ERROR_RESOURCE=2
+readonly ERROR_NETWORK=3
+readonly ERROR_FILESYSTEM=4
+readonly ERROR_PROCESS=5
+readonly ERROR_VALIDATION=6
+readonly ERROR_DEPENDENCY=7
+
+# Recovery state tracking
+RECOVERY_IN_PROGRESS=false
+PARTIAL_CLEANUP_NEEDED=false
+
+# Initialize error handling system
+init_error_handling() {
+    log_debug "Initializing comprehensive error handling system" \
+              "Seperti RT yang menyiapkan sistem penanganan darurat untuk kompleks"
+    
+    # Clear any previous error state
+    ERROR_CONTEXT=()
+    ROLLBACK_STACK=()
+    RECOVERY_ACTIONS=()
+    RECOVERY_IN_PROGRESS=false
+    PARTIAL_CLEANUP_NEEDED=false
+    
+    # Set up enhanced signal handlers
+    setup_enhanced_signal_handlers
+    
+    return 0
+}
+
+# Enhanced signal handlers with recovery
+setup_enhanced_signal_handlers() {
+    trap 'handle_script_exit $?' EXIT
+    trap 'handle_interrupt_signal SIGINT' INT
+    trap 'handle_terminate_signal SIGTERM' TERM
+    trap 'handle_error_signal $? $LINENO' ERR
+}
+
+# Handle script exit with comprehensive cleanup
+handle_script_exit() {
+    local exit_code=$1
+    
+    if [[ $exit_code -ne 0 && "$RECOVERY_IN_PROGRESS" != "true" ]]; then
+        log_error "Script exiting with error code $exit_code" \
+                  "Seperti RT mengalami masalah dalam menjalankan tugas"
+        
+        # Perform emergency cleanup if needed
+        if [[ "$PARTIAL_CLEANUP_NEEDED" == "true" ]]; then
+            log_warn "Performing emergency cleanup due to partial failure" \
+                     "Seperti RT melakukan pembersihan darurat setelah masalah"
+            perform_emergency_cleanup
+        fi
+        
+        # Show troubleshooting hints
+        show_error_troubleshooting "$exit_code"
+    fi
+    
+    exit $exit_code
+}
+
+# Handle interrupt signal (Ctrl+C)
+handle_interrupt_signal() {
+    local signal=$1
+    log_warn "Received $signal, initiating graceful shutdown..." \
+             "Seperti RT menerima instruksi untuk menghentikan operasi dengan aman"
+    
+    # Set recovery flag to prevent recursive cleanup
+    RECOVERY_IN_PROGRESS=true
+    
+    # Perform current operation cleanup
+    if [[ -n "$CURRENT_OPERATION" ]]; then
+        log_info "Cleaning up current operation: $CURRENT_OPERATION" \
+                 "Seperti RT membersihkan pekerjaan yang sedang berlangsung"
+        cleanup_current_operation
+    fi
+    
+    exit 130
+}
+
+# Handle terminate signal
+handle_terminate_signal() {
+    local signal=$1
+    log_warn "Received $signal, performing immediate cleanup..." \
+             "Seperti RT menerima perintah darurat untuk berhenti segera"
+    
+    RECOVERY_IN_PROGRESS=true
+    perform_emergency_cleanup
+    exit 143
+}
+
+# Handle error signal with context
+handle_error_signal() {
+    local exit_code=$1
+    local line_number=$2
+    
+    if [[ "$RECOVERY_IN_PROGRESS" != "true" ]]; then
+        log_error "Error occurred at line $line_number with exit code $exit_code" \
+                  "Seperti RT menemukan masalah pada langkah tertentu"
+        
+        # Add error context
+        ERROR_CONTEXT["line"]=$line_number
+        ERROR_CONTEXT["exit_code"]=$exit_code
+        ERROR_CONTEXT["operation"]=$CURRENT_OPERATION
+        ERROR_CONTEXT["timestamp"]=$(date '+%Y-%m-%d %H:%M:%S')
+        
+        # Mark for cleanup
+        PARTIAL_CLEANUP_NEEDED=true
+    fi
+}
+
+# Set current operation context for better error reporting
+set_operation_context() {
+    local operation=$1
+    local details=${2:-""}
+    
+    CURRENT_OPERATION="$operation"
+    OPERATION_START_TIME=$(date '+%Y-%m-%d %H:%M:%S')
+    
+    log_debug "Starting operation: $operation" \
+              "Seperti RT memulai tugas: $operation"
+    
+    # Clear previous error context
+    ERROR_CONTEXT["operation"]=$operation
+    ERROR_CONTEXT["details"]=$details
+    ERROR_CONTEXT["start_time"]=$OPERATION_START_TIME
+}
+
+# Clear operation context when completed successfully
+clear_operation_context() {
+    local operation=$1
+    
+    if [[ "$CURRENT_OPERATION" == "$operation" ]]; then
+        log_debug "Completed operation: $operation" \
+                  "Seperti RT berhasil menyelesaikan tugas: $operation"
+        CURRENT_OPERATION=""
+        OPERATION_START_TIME=""
+    fi
+}
+
+# Add rollback action to stack
+add_rollback_action() {
+    local action_id=$1
+    local action_command=$2
+    local description=${3:-"Rollback action"}
+    
+    ROLLBACK_STACK["$action_id"]="$action_command"
+    RECOVERY_ACTIONS["$action_id"]="$description"
+    
+    log_debug "Added rollback action: $action_id" \
+              "Seperti RT mencatat langkah pembatalan: $description"
+}
+
+# Execute rollback actions in reverse order
+execute_rollback() {
+    local operation=${1:-"unknown"}
+    
+    if [[ ${#ROLLBACK_STACK[@]} -eq 0 ]]; then
+        log_info "No rollback actions needed for operation: $operation" \
+                 "Tidak ada langkah pembatalan yang diperlukan"
+        return 0
+    fi
+    
+    log_warn "Executing rollback for operation: $operation" \
+             "Seperti RT membatalkan perubahan yang sudah dilakukan"
+    
+    RECOVERY_IN_PROGRESS=true
+    
+    # Execute rollback actions in reverse order
+    local rollback_count=0
+    for action_id in $(printf '%s\n' "${!ROLLBACK_STACK[@]}" | sort -r); do
+        local action_command="${ROLLBACK_STACK[$action_id]}"
+        local description="${RECOVERY_ACTIONS[$action_id]}"
+        
+        log_info "Rollback step $((++rollback_count)): $description" \
+                 "Seperti RT membatalkan: $description"
+        
+        if eval "$action_command" 2>/dev/null; then
+            log_debug "Rollback action succeeded: $action_id"
+            unset ROLLBACK_STACK["$action_id"]
+            unset RECOVERY_ACTIONS["$action_id"]
+        else
+            log_warn "Rollback action failed: $action_id" \
+                     "Gagal membatalkan: $description"
+        fi
+    done
+    
+    RECOVERY_IN_PROGRESS=false
+    log_success "Rollback completed for operation: $operation" \
+                "RT berhasil membatalkan perubahan yang bermasalah"
+}
+
+# Cleanup current operation
+cleanup_current_operation() {
+    if [[ -n "$CURRENT_OPERATION" ]]; then
+        case "$CURRENT_OPERATION" in
+            "create_container")
+                cleanup_partial_container_creation
+                ;;
+            "delete_container")
+                cleanup_partial_container_deletion
+                ;;
+            "setup_network")
+                cleanup_partial_network_setup
+                ;;
+            "setup_cgroup")
+                cleanup_partial_cgroup_setup
+                ;;
+            "setup_namespace")
+                cleanup_partial_namespace_setup
+                ;;
+            *)
+                log_warn "Unknown operation for cleanup: $CURRENT_OPERATION" \
+                         "Operasi tidak dikenal untuk pembersihan"
+                ;;
+        esac
+    fi
+}
+
+# Emergency cleanup for critical failures
+perform_emergency_cleanup() {
+    log_warn "Performing emergency cleanup..." \
+             "Seperti RT melakukan pembersihan darurat kompleks"
+    
+    RECOVERY_IN_PROGRESS=true
+    
+    # Clean up any partial container states
+    cleanup_all_partial_states
+    
+    # Clean up orphaned network interfaces
+    cleanup_orphaned_network_interfaces
+    
+    # Clean up orphaned cgroups
+    cleanup_orphaned_cgroups
+    
+    # Clean up orphaned namespaces
+    cleanup_orphaned_namespaces
+    
+    RECOVERY_IN_PROGRESS=false
+    log_info "Emergency cleanup completed" \
+             "Pembersihan darurat selesai"
+}
+
+# Detect and recover from corrupted state
+detect_and_recover_corrupted_state() {
+    local container_name=${1:-""}
+    
+    log_info "Checking for corrupted container state..." \
+             "Seperti RT memeriksa kondisi rumah yang bermasalah"
+    
+    local corruption_found=false
+    
+    if [[ -n "$container_name" ]]; then
+        # Check specific container
+        if check_container_corruption "$container_name"; then
+            corruption_found=true
+            recover_corrupted_container "$container_name"
+        fi
+    else
+        # Check all containers
+        if [[ -d "$CONTAINERS_DIR" ]]; then
+            for container_dir in "$CONTAINERS_DIR"/*; do
+                if [[ -d "$container_dir" && "$(basename "$container_dir")" != "busybox" ]]; then
+                    local name=$(basename "$container_dir")
+                    if check_container_corruption "$name"; then
+                        corruption_found=true
+                        recover_corrupted_container "$name"
+                    fi
+                fi
+            done
+        fi
+    fi
+    
+    if [[ "$corruption_found" == "false" ]]; then
+        log_success "No corrupted state detected" \
+                    "Semua rumah dalam kondisi baik"
+    fi
+    
+    return 0
+}
+
+# Check if container state is corrupted
+check_container_corruption() {
+    local container_name=$1
+    local container_dir="$CONTAINERS_DIR/$container_name"
+    
+    # Check if container directory exists but is incomplete
+    if [[ ! -d "$container_dir" ]]; then
+        return 1  # Not corrupted, just doesn't exist
+    fi
+    
+    local corruption_issues=()
+    
+    # Check for missing essential files
+    if [[ ! -f "$container_dir/config.json" ]]; then
+        corruption_issues+=("missing_config")
+    fi
+    
+    # Check for orphaned PID file with dead process
+    if [[ -f "$container_dir/container.pid" ]]; then
+        local pid=$(cat "$container_dir/container.pid" 2>/dev/null || echo "")
+        if [[ -n "$pid" ]] && ! kill -0 "$pid" 2>/dev/null; then
+            corruption_issues+=("orphaned_pid")
+        fi
+    fi
+    
+    # Check for missing rootfs
+    if [[ ! -d "$container_dir/rootfs" ]]; then
+        corruption_issues+=("missing_rootfs")
+    fi
+    
+    # Check for orphaned cgroups
+    local memory_cgroup="$CGROUP_ROOT/memory/container-$container_name"
+    local cpu_cgroup="$CGROUP_ROOT/cpu/container-$container_name"
+    
+    if [[ -d "$memory_cgroup" ]] && [[ ! -f "$container_dir/container.pid" ]]; then
+        corruption_issues+=("orphaned_cgroup")
+    fi
+    
+    # Check for orphaned network namespace
+    if ip netns list 2>/dev/null | grep -q "container-$container_name"; then
+        if [[ ! -f "$container_dir/container.pid" ]]; then
+            corruption_issues+=("orphaned_netns")
+        fi
+    fi
+    
+    if [[ ${#corruption_issues[@]} -gt 0 ]]; then
+        log_warn "Container corruption detected for '$container_name': ${corruption_issues[*]}" \
+                 "Ditemukan masalah pada rumah '$container_name'"
+        return 0  # Corruption found
+    fi
+    
+    return 1  # No corruption
+}
+
+# Recover corrupted container state
+recover_corrupted_container() {
+    local container_name=$1
+    local container_dir="$CONTAINERS_DIR/$container_name"
+    
+    log_info "Recovering corrupted container: $container_name" \
+             "Seperti RT memperbaiki rumah yang bermasalah: $container_name"
+    
+    set_operation_context "recover_container" "$container_name"
+    
+    # Clean up orphaned PID file
+    if [[ -f "$container_dir/container.pid" ]]; then
+        local pid=$(cat "$container_dir/container.pid" 2>/dev/null || echo "")
+        if [[ -n "$pid" ]] && ! kill -0 "$pid" 2>/dev/null; then
+            log_info "Removing orphaned PID file" \
+                     "Menghapus catatan proses yang sudah mati"
+            rm -f "$container_dir/container.pid"
+        fi
+    fi
+    
+    # Clean up orphaned cgroups
+    cleanup_container_cgroups "$container_name" 2>/dev/null || true
+    
+    # Clean up orphaned network namespace
+    cleanup_container_network "$container_name" 2>/dev/null || true
+    
+    # Recreate missing config if possible
+    if [[ ! -f "$container_dir/config.json" ]] && [[ -d "$container_dir" ]]; then
+        log_info "Recreating missing config file" \
+                 "Membuat ulang berkas konfigurasi yang hilang"
+        create_default_container_config "$container_name"
+    fi
+    
+    # Recreate missing rootfs structure
+    if [[ ! -d "$container_dir/rootfs" ]]; then
+        log_info "Recreating missing rootfs structure" \
+                 "Membuat ulang struktur sistem file yang hilang"
+        create_directory "$container_dir/rootfs"
+        setup_busybox "$container_name" 2>/dev/null || true
+    fi
+    
+    clear_operation_context "recover_container"
+    
+    log_success "Container recovery completed: $container_name" \
+                "Pemulihan rumah selesai: $container_name"
+}
+
+# Create default config for corrupted container
+create_default_container_config() {
+    local container_name=$1
+    local config_file="$CONTAINERS_DIR/$container_name/config.json"
+    
+    cat > "$config_file" << EOF
+{
+  "name": "$container_name",
+  "created": "$(date -Iseconds)",
+  "status": "stopped",
+  "resources": {
+    "memory_mb": $DEFAULT_MEMORY_MB,
+    "cpu_percentage": $DEFAULT_CPU_PERCENT
+  },
+  "network": {
+    "ip_address": "",
+    "veth_host": "",
+    "veth_container": ""
+  },
+  "namespaces": {
+    "pid": "",
+    "net": "",
+    "mnt": "",
+    "uts": "",
+    "ipc": "",
+    "user": ""
+  },
+  "cgroups": {
+    "memory": "$CGROUP_ROOT/memory/container-$container_name",
+    "cpu": "$CGROUP_ROOT/cpu/container-$container_name"
+  },
+  "pid": 0,
+  "recovered": true,
+  "recovery_timestamp": "$(date -Iseconds)"
+}
+EOF
+}
+
+# Enhanced error reporting with troubleshooting hints
+show_error_troubleshooting() {
+    local exit_code=$1
+    
+    echo -e "\n${COLOR_RED}🚨 ERROR TROUBLESHOOTING GUIDE${COLOR_RESET}"
+    echo -e "${COLOR_RED}===============================${COLOR_RESET}\n"
+    
+    case $exit_code in
+        1)
+            echo -e "${COLOR_YELLOW}📋 General Error (Exit Code 1):${COLOR_RESET}"
+            echo -e "   • Check command syntax and parameters"
+            echo -e "   • Verify container names and resource limits"
+            echo -e "   • Review log messages above for specific details"
+            ;;
+        2)
+            echo -e "${COLOR_YELLOW}📋 Permission Error (Exit Code 2):${COLOR_RESET}"
+            echo -e "   • Run script with sudo: sudo $0 [command]"
+            echo -e "   • Check file permissions in $CONTAINERS_DIR"
+            echo -e "   • Verify cgroup permissions in $CGROUP_ROOT"
+            ;;
+        126)
+            echo -e "${COLOR_YELLOW}📋 Command Not Executable (Exit Code 126):${COLOR_RESET}"
+            echo -e "   • Check if script has execute permissions"
+            echo -e "   • Verify busybox binary at $BUSYBOX_PATH"
+            echo -e "   • Run: chmod +x $0"
+            ;;
+        127)
+            echo -e "${COLOR_YELLOW}📋 Command Not Found (Exit Code 127):${COLOR_RESET}"
+            echo -e "   • Install missing dependencies: unshare, nsenter, ip"
+            echo -e "   • Check PATH environment variable"
+            echo -e "   • Run dependency check: $0 debug system"
+            ;;
+        130)
+            echo -e "${COLOR_YELLOW}📋 Interrupted by User (Exit Code 130):${COLOR_RESET}"
+            echo -e "   • Operation was cancelled by Ctrl+C"
+            echo -e "   • Check for partial container states"
+            echo -e "   • Run cleanup if needed: $0 cleanup-all"
+            ;;
+        *)
+            echo -e "${COLOR_YELLOW}📋 Unknown Error (Exit Code $exit_code):${COLOR_RESET}"
+            echo -e "   • Check system logs: journalctl -xe"
+            echo -e "   • Run debug mode: $0 debug all"
+            echo -e "   • Check available resources: df -h, free -h"
+            ;;
+    esac
+    
+    echo -e "\n${COLOR_CYAN}🔍 DIAGNOSTIC COMMANDS:${COLOR_RESET}"
+    echo -e "   • System info: $0 debug system"
+    echo -e "   • Container status: $0 debug containers"
+    echo -e "   • Network status: $0 debug network"
+    echo -e "   • Recovery check: $0 recover-state"
+    
+    echo -e "\n${COLOR_PURPLE}🏘️  ANALOGI RT:${COLOR_RESET}"
+    echo -e "   Seperti RT yang memberikan panduan mengatasi masalah kompleks"
+    echo -e "   berdasarkan jenis masalah yang terjadi di perumahan\n"
+}
+
+# Validate system state before operations
+validate_system_state() {
+    local operation=${1:-"general"}
+    
+    log_debug "Validating system state for operation: $operation" \
+              "Seperti RT memeriksa kondisi kompleks sebelum melakukan tugas"
+    
+    local validation_errors=()
+    
+    # Check basic requirements
+    if [[ $EUID -ne 0 ]]; then
+        validation_errors+=("insufficient_privileges")
+    fi
+    
+    # Check disk space
+    local available_space=$(df "$CONTAINERS_DIR" 2>/dev/null | tail -1 | awk '{print $4}' || echo "0")
+    if [[ $available_space -lt 100000 ]]; then  # Less than 100MB
+        validation_errors+=("insufficient_disk_space")
+    fi
+    
+    # Check memory
+    local available_memory=$(free | grep '^Mem:' | awk '{print $7}' 2>/dev/null || echo "0")
+    if [[ $available_memory -lt 100000 ]]; then  # Less than 100MB
+        validation_errors+=("insufficient_memory")
+    fi
+    
+    # Check cgroup availability
+    if [[ ! -d "$CGROUP_ROOT" ]]; then
+        validation_errors+=("cgroups_unavailable")
+    fi
+    
+    # Operation-specific validations
+    case "$operation" in
+        "create_container")
+            if [[ ! -x "$BUSYBOX_PATH" ]]; then
+                validation_errors+=("busybox_unavailable")
+            fi
+            ;;
+        "network_setup")
+            if ! command -v ip &> /dev/null; then
+                validation_errors+=("ip_command_unavailable")
+            fi
+            ;;
+    esac
+    
+    if [[ ${#validation_errors[@]} -gt 0 ]]; then
+        log_error "System validation failed: ${validation_errors[*]}" \
+                  "Seperti RT menemukan masalah yang harus diperbaiki sebelum melanjutkan"
+        return 1
+    fi
+    
+    log_debug "System validation passed for operation: $operation" \
+              "Sistem siap untuk operasi: $operation"
+    return 0
+}
+
+# =============================================================================
 # INPUT VALIDATION AND ERROR HANDLING UTILITIES
 # =============================================================================
 
@@ -373,6 +917,375 @@ create_directory() {
         log_debug "Creating directory: $dir_path" "Seperti RT membuat folder baru untuk organisasi kompleks"
         mkdir -p "$dir_path"
         chmod "$permissions" "$dir_path"
+    fi
+}
+
+# =============================================================================
+# PARTIAL FAILURE CLEANUP FUNCTIONS
+# =============================================================================
+
+# Cleanup partial container creation
+cleanup_partial_container_creation() {
+    local container_name=${ERROR_CONTEXT["details"]:-"unknown"}
+    
+    if [[ "$container_name" == "unknown" ]]; then
+        log_warn "Cannot cleanup partial container creation - container name unknown" \
+                 "Tidak dapat membersihkan pembuatan rumah yang gagal - nama tidak diketahui"
+        return 1
+    fi
+    
+    log_info "Cleaning up partial container creation: $container_name" \
+             "Membersihkan pembuatan rumah yang gagal: $container_name"
+    
+    # Remove container directory if it exists
+    local container_dir="$CONTAINERS_DIR/$container_name"
+    if [[ -d "$container_dir" ]]; then
+        log_debug "Removing container directory: $container_dir"
+        rm -rf "$container_dir" 2>/dev/null || true
+    fi
+    
+    # Clean up cgroups
+    cleanup_container_cgroups "$container_name" 2>/dev/null || true
+    
+    # Clean up network
+    cleanup_container_network "$container_name" 2>/dev/null || true
+    
+    # Clean up namespaces
+    cleanup_container_namespaces "$container_name" 2>/dev/null || true
+    
+    log_success "Partial container creation cleanup completed: $container_name" \
+                "Pembersihan pembuatan rumah yang gagal selesai: $container_name"
+}
+
+# Cleanup partial container deletion
+cleanup_partial_container_deletion() {
+    local container_name=${ERROR_CONTEXT["details"]:-"unknown"}
+    
+    log_info "Cleaning up partial container deletion: $container_name" \
+             "Membersihkan penghapusan rumah yang tidak selesai: $container_name"
+    
+    # Force cleanup of any remaining resources
+    cleanup_container_cgroups "$container_name" 2>/dev/null || true
+    cleanup_container_network "$container_name" 2>/dev/null || true
+    cleanup_container_namespaces "$container_name" 2>/dev/null || true
+    
+    # Remove any remaining files
+    local container_dir="$CONTAINERS_DIR/$container_name"
+    if [[ -d "$container_dir" ]]; then
+        rm -rf "$container_dir" 2>/dev/null || true
+    fi
+    
+    log_success "Partial container deletion cleanup completed: $container_name" \
+                "Pembersihan penghapusan rumah yang tidak selesai: $container_name"
+}
+
+# Cleanup partial network setup
+cleanup_partial_network_setup() {
+    local container_name=${ERROR_CONTEXT["details"]:-"unknown"}
+    
+    log_info "Cleaning up partial network setup: $container_name" \
+             "Membersihkan pemasangan jaringan yang gagal: $container_name"
+    
+    # Remove network namespace
+    if ip netns list 2>/dev/null | grep -q "container-$container_name"; then
+        log_debug "Removing network namespace: container-$container_name"
+        ip netns delete "container-$container_name" 2>/dev/null || true
+    fi
+    
+    # Remove veth pairs
+    local veth_host="veth-host-$container_name"
+    local veth_container="veth-cont-$container_name"
+    
+    if ip link show "$veth_host" &>/dev/null; then
+        log_debug "Removing veth pair: $veth_host"
+        ip link delete "$veth_host" 2>/dev/null || true
+    fi
+    
+    if ip link show "$veth_container" &>/dev/null; then
+        log_debug "Removing veth pair: $veth_container"
+        ip link delete "$veth_container" 2>/dev/null || true
+    fi
+    
+    log_success "Partial network setup cleanup completed: $container_name" \
+                "Pembersihan pemasangan jaringan yang gagal selesai: $container_name"
+}
+
+# Cleanup partial cgroup setup
+cleanup_partial_cgroup_setup() {
+    local container_name=${ERROR_CONTEXT["details"]:-"unknown"}
+    
+    log_info "Cleaning up partial cgroup setup: $container_name" \
+             "Membersihkan pengaturan resource yang gagal: $container_name"
+    
+    cleanup_container_cgroups "$container_name"
+    
+    log_success "Partial cgroup setup cleanup completed: $container_name" \
+                "Pembersihan pengaturan resource yang gagal selesai: $container_name"
+}
+
+# Cleanup partial namespace setup
+cleanup_partial_namespace_setup() {
+    local container_name=${ERROR_CONTEXT["details"]:-"unknown"}
+    
+    log_info "Cleaning up partial namespace setup: $container_name" \
+             "Membersihkan pengaturan namespace yang gagal: $container_name"
+    
+    cleanup_container_namespaces "$container_name"
+    
+    log_success "Partial namespace setup cleanup completed: $container_name" \
+                "Pembersihan pengaturan namespace yang gagal selesai: $container_name"
+}
+
+# Cleanup all partial states
+cleanup_all_partial_states() {
+    log_info "Cleaning up all partial container states..." \
+             "Membersihkan semua rumah yang dalam kondisi tidak lengkap..."
+    
+    if [[ ! -d "$CONTAINERS_DIR" ]]; then
+        return 0
+    fi
+    
+    local cleanup_count=0
+    for container_dir in "$CONTAINERS_DIR"/*; do
+        if [[ -d "$container_dir" && "$(basename "$container_dir")" != "busybox" ]]; then
+            local container_name=$(basename "$container_dir")
+            
+            # Check if container is in partial state
+            if check_container_corruption "$container_name"; then
+                log_info "Cleaning up partial state for: $container_name" \
+                         "Membersihkan kondisi tidak lengkap untuk: $container_name"
+                
+                cleanup_container_cgroups "$container_name" 2>/dev/null || true
+                cleanup_container_network "$container_name" 2>/dev/null || true
+                cleanup_container_namespaces "$container_name" 2>/dev/null || true
+                
+                cleanup_count=$((cleanup_count + 1))
+            fi
+        fi
+    done
+    
+    log_success "Cleaned up $cleanup_count partial container states" \
+                "Berhasil membersihkan $cleanup_count rumah yang tidak lengkap"
+}
+
+# Cleanup orphaned network interfaces
+cleanup_orphaned_network_interfaces() {
+    log_info "Cleaning up orphaned network interfaces..." \
+             "Membersihkan sambungan jaringan yang terlantar..."
+    
+    local cleanup_count=0
+    
+    # Clean up orphaned veth pairs
+    if command -v ip &> /dev/null; then
+        # Find veth pairs that match our naming pattern but have no corresponding container
+        ip link show type veth 2>/dev/null | grep -E "veth-(host|cont)-" | while read -r line; do
+            local veth_name=$(echo "$line" | awk '{print $2}' | sed 's/@.*//' | sed 's/://')
+            local container_name=""
+            
+            if [[ "$veth_name" =~ veth-host-(.*) ]]; then
+                container_name="${BASH_REMATCH[1]}"
+            elif [[ "$veth_name" =~ veth-cont-(.*) ]]; then
+                container_name="${BASH_REMATCH[1]}"
+            fi
+            
+            if [[ -n "$container_name" ]] && [[ ! -d "$CONTAINERS_DIR/$container_name" ]]; then
+                log_debug "Removing orphaned veth interface: $veth_name"
+                ip link delete "$veth_name" 2>/dev/null || true
+                cleanup_count=$((cleanup_count + 1))
+            fi
+        done
+        
+        # Clean up orphaned network namespaces
+        ip netns list 2>/dev/null | grep "container-" | while read -r ns_name; do
+            local container_name="${ns_name#container-}"
+            if [[ ! -d "$CONTAINERS_DIR/$container_name" ]]; then
+                log_debug "Removing orphaned network namespace: $ns_name"
+                ip netns delete "$ns_name" 2>/dev/null || true
+                cleanup_count=$((cleanup_count + 1))
+            fi
+        done
+    fi
+    
+    log_success "Cleaned up orphaned network interfaces" \
+                "Berhasil membersihkan sambungan jaringan yang terlantar"
+}
+
+# Cleanup orphaned cgroups
+cleanup_orphaned_cgroups() {
+    log_info "Cleaning up orphaned cgroups..." \
+             "Membersihkan pengaturan resource yang terlantar..."
+    
+    local cleanup_count=0
+    
+    # Clean up memory cgroups
+    if [[ -d "$CGROUP_ROOT/memory" ]]; then
+        for cgroup_dir in "$CGROUP_ROOT/memory"/container-*; do
+            if [[ -d "$cgroup_dir" ]]; then
+                local container_name=$(basename "$cgroup_dir" | sed 's/container-//')
+                if [[ ! -d "$CONTAINERS_DIR/$container_name" ]]; then
+                    log_debug "Removing orphaned memory cgroup: $cgroup_dir"
+                    rmdir "$cgroup_dir" 2>/dev/null || true
+                    cleanup_count=$((cleanup_count + 1))
+                fi
+            fi
+        done
+    fi
+    
+    # Clean up CPU cgroups
+    if [[ -d "$CGROUP_ROOT/cpu" ]]; then
+        for cgroup_dir in "$CGROUP_ROOT/cpu"/container-*; do
+            if [[ -d "$cgroup_dir" ]]; then
+                local container_name=$(basename "$cgroup_dir" | sed 's/container-//')
+                if [[ ! -d "$CONTAINERS_DIR/$container_name" ]]; then
+                    log_debug "Removing orphaned CPU cgroup: $cgroup_dir"
+                    rmdir "$cgroup_dir" 2>/dev/null || true
+                    cleanup_count=$((cleanup_count + 1))
+                fi
+            fi
+        done
+    fi
+    
+    log_success "Cleaned up orphaned cgroups" \
+                "Berhasil membersihkan pengaturan resource yang terlantar"
+}
+
+# Cleanup orphaned namespaces
+cleanup_orphaned_namespaces() {
+    log_info "Cleaning up orphaned namespaces..." \
+             "Membersihkan namespace yang terlantar..."
+    
+    # Most namespace cleanup is handled by process termination
+    # But we can clean up any namespace-related files
+    
+    if [[ -d "$CONTAINERS_DIR" ]]; then
+        for container_dir in "$CONTAINERS_DIR"/*; do
+            if [[ -d "$container_dir/namespaces" ]]; then
+                local container_name=$(basename "$container_dir")
+                
+                # If container has no PID file, clean up namespace configs
+                if [[ ! -f "$container_dir/container.pid" ]]; then
+                    log_debug "Cleaning up namespace configs for: $container_name"
+                    rm -rf "$container_dir/namespaces" 2>/dev/null || true
+                fi
+            fi
+        done
+    fi
+    
+    log_success "Cleaned up orphaned namespaces" \
+                "Berhasil membersihkan namespace yang terlantar"
+}
+
+# Enhanced container cgroup cleanup
+cleanup_container_cgroups() {
+    local container_name=$1
+    
+    log_debug "Cleaning up cgroups for container: $container_name" \
+              "Membersihkan pengaturan resource untuk rumah: $container_name"
+    
+    # Memory cgroup cleanup
+    local memory_cgroup="$CGROUP_ROOT/memory/container-$container_name"
+    if [[ -d "$memory_cgroup" ]]; then
+        # Kill any remaining processes in the cgroup
+        if [[ -f "$memory_cgroup/cgroup.procs" ]]; then
+            while read -r pid; do
+                if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+                    log_debug "Killing process in memory cgroup: $pid"
+                    kill -TERM "$pid" 2>/dev/null || true
+                    sleep 0.1
+                    kill -KILL "$pid" 2>/dev/null || true
+                fi
+            done < "$memory_cgroup/cgroup.procs" 2>/dev/null || true
+        fi
+        
+        # Remove the cgroup
+        rmdir "$memory_cgroup" 2>/dev/null || true
+    fi
+    
+    # CPU cgroup cleanup
+    local cpu_cgroup="$CGROUP_ROOT/cpu/container-$container_name"
+    if [[ -d "$cpu_cgroup" ]]; then
+        # Kill any remaining processes in the cgroup
+        if [[ -f "$cpu_cgroup/cgroup.procs" ]]; then
+            while read -r pid; do
+                if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+                    log_debug "Killing process in CPU cgroup: $pid"
+                    kill -TERM "$pid" 2>/dev/null || true
+                    sleep 0.1
+                    kill -KILL "$pid" 2>/dev/null || true
+                fi
+            done < "$cpu_cgroup/cgroup.procs" 2>/dev/null || true
+        fi
+        
+        # Remove the cgroup
+        rmdir "$cpu_cgroup" 2>/dev/null || true
+    fi
+}
+
+# Enhanced container network cleanup
+cleanup_container_network() {
+    local container_name=$1
+    
+    log_debug "Cleaning up network for container: $container_name" \
+              "Membersihkan jaringan untuk rumah: $container_name"
+    
+    # Remove network namespace
+    local netns_name="container-$container_name"
+    if ip netns list 2>/dev/null | grep -q "$netns_name"; then
+        log_debug "Removing network namespace: $netns_name"
+        ip netns delete "$netns_name" 2>/dev/null || true
+    fi
+    
+    # Remove veth pairs
+    local veth_host="veth-host-$container_name"
+    local veth_container="veth-cont-$container_name"
+    
+    if ip link show "$veth_host" &>/dev/null; then
+        log_debug "Removing veth pair: $veth_host"
+        ip link delete "$veth_host" 2>/dev/null || true
+    fi
+    
+    if ip link show "$veth_container" &>/dev/null; then
+        log_debug "Removing veth pair: $veth_container"
+        ip link delete "$veth_container" 2>/dev/null || true
+    fi
+}
+
+# Enhanced container namespace cleanup
+cleanup_container_namespaces() {
+    local container_name=$1
+    local container_dir="$CONTAINERS_DIR/$container_name"
+    
+    log_debug "Cleaning up namespaces for container: $container_name" \
+              "Membersihkan namespace untuk rumah: $container_name"
+    
+    # Kill container process if still running
+    if [[ -f "$container_dir/container.pid" ]]; then
+        local pid=$(cat "$container_dir/container.pid" 2>/dev/null || echo "")
+        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+            log_debug "Killing container process: $pid"
+            kill -TERM "$pid" 2>/dev/null || true
+            sleep 1
+            kill -KILL "$pid" 2>/dev/null || true
+        fi
+        rm -f "$container_dir/container.pid"
+    fi
+    
+    # Clean up namespace configuration files
+    if [[ -d "$container_dir/namespaces" ]]; then
+        rm -rf "$container_dir/namespaces" 2>/dev/null || true
+    fi
+    
+    # Unmount any remaining mounts
+    if [[ -d "$container_dir/rootfs" ]]; then
+        # Unmount in reverse order
+        local mount_points=("/proc" "/sys" "/dev/pts" "/dev")
+        for mount_point in "${mount_points[@]}"; do
+            local full_path="$container_dir/rootfs$mount_point"
+            if mountpoint -q "$full_path" 2>/dev/null; then
+                log_debug "Unmounting: $full_path"
+                umount "$full_path" 2>/dev/null || true
+            fi
+        done
     fi
 }
 
@@ -922,6 +1835,9 @@ show_main_help() {
     echo -e "${COLOR_GREEN}├── delete-container  : Menghapus rumah dari kompleks${COLOR_RESET}"
     echo -e "${COLOR_GREEN}├── monitor          : Memantau penggunaan utilitas rumah${COLOR_RESET}"
     echo -e "${COLOR_GREEN}├── show-topology    : Melihat peta kompleks perumahan${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── recover-state    : Memulihkan kondisi rumah yang bermasalah${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── validate-system  : Memeriksa kesehatan sistem kompleks${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── emergency-cleanup: Pembersihan darurat semua resource${COLOR_RESET}"
     echo -e "${COLOR_GREEN}└── cleanup-all      : Bersih-bersih kompleks menyeluruh${COLOR_RESET}"
     
     echo -e "\n${COLOR_CYAN}🔧 MODE OPERASI (Operation Modes):${COLOR_RESET}"
@@ -2096,19 +3012,34 @@ create_container() {
     local cpu_percent=${3:-$DEFAULT_CPU_PERCENT}
     local hostname=${4:-$container_name}
     
+    # Initialize comprehensive error handling
+    init_error_handling
+    set_operation_context "create_container" "$container_name"
+    
     log_step 1 "Creating container: $container_name" \
               "Seperti RT membangun rumah baru lengkap dengan semua fasilitas"
     
-    # Validate inputs
+    # Validate system state before starting
+    if ! validate_system_state "create_container"; then
+        log_error "System validation failed for container creation" \
+                  "Sistem tidak siap untuk membangun rumah baru"
+        clear_operation_context "create_container"
+        return 1
+    fi
+    
+    # Validate inputs with enhanced error reporting
     if ! validate_container_name "$container_name"; then
+        clear_operation_context "create_container"
         return 1
     fi
     
     if ! validate_memory_limit "$memory_mb"; then
+        clear_operation_context "create_container"
         return 1
     fi
     
     if ! validate_cpu_percentage "$cpu_percent"; then
+        clear_operation_context "create_container"
         return 1
     fi
     
@@ -2116,102 +3047,183 @@ create_container() {
     if container_exists "$container_name"; then
         log_error "Container already exists: $container_name" \
                   "Rumah dengan nama tersebut sudah ada di kompleks"
+        clear_operation_context "create_container"
         return 1
     fi
     
-    # Create container directory structure
+    # Create container directory structure with rollback capability
     log_info "Creating container directory structure" \
              "Seperti menyiapkan fondasi dan struktur rumah baru"
     
     local container_dir="$CONTAINERS_DIR/$container_name"
-    create_directory "$container_dir"
-    create_directory "$container_dir/rootfs"
-    create_directory "$container_dir/logs"
-    create_directory "$container_dir/namespaces"
     
-    # Get IP address for container
+    if ! create_directory "$container_dir"; then
+        log_error "Failed to create container directory: $container_dir" \
+                  "Gagal menyiapkan lahan untuk rumah"
+        clear_operation_context "create_container"
+        return 1
+    fi
+    
+    # Add rollback action for directory cleanup
+    add_rollback_action "remove_container_dir" "rm -rf '$container_dir'" "Remove container directory"
+    
+    if ! create_directory "$container_dir/rootfs"; then
+        log_error "Failed to create container rootfs directory" \
+                  "Gagal menyiapkan struktur dasar rumah"
+        execute_rollback "create_container"
+        clear_operation_context "create_container"
+        return 1
+    fi
+    
+    if ! create_directory "$container_dir/logs"; then
+        log_error "Failed to create container logs directory" \
+                  "Gagal menyiapkan tempat catatan rumah"
+        execute_rollback "create_container"
+        clear_operation_context "create_container"
+        return 1
+    fi
+    
+    if ! create_directory "$container_dir/namespaces"; then
+        log_error "Failed to create container namespaces directory" \
+                  "Gagal menyiapkan tempat konfigurasi sistem rumah"
+        execute_rollback "create_container"
+        clear_operation_context "create_container"
+        return 1
+    fi
+    
+    # Get IP address for container with validation
+    log_info "Allocating IP address for container" \
+             "Seperti RT mengalokasikan nomor telepon untuk rumah"
+    
     local container_ip
     if ! container_ip=$(get_next_container_ip); then
         log_error "Failed to allocate IP address for container" \
                   "Gagal mendapatkan nomor telepon rumah"
+        execute_rollback "create_container"
+        clear_operation_context "create_container"
         return 1
     fi
     
-    # Save initial metadata
+    log_info "Allocated IP address: $container_ip" \
+             "Nomor telepon yang dialokasikan: $container_ip"
+    
+    # Save initial metadata with error handling
     if ! save_container_metadata "$container_name" "$memory_mb" "$cpu_percent" "$container_ip" "creating"; then
         log_error "Failed to save container metadata" \
                   "Gagal mencatat data rumah di administrasi RT"
+        execute_rollback "create_container"
+        clear_operation_context "create_container"
         return 1
     fi
     
+    # Add rollback action for metadata cleanup
+    add_rollback_action "remove_metadata" "rm -f '$container_dir/config.json'" "Remove container metadata"
+    
     # Reserve IP address
     set_container_ip "$container_name" "$container_ip"
+    add_rollback_action "release_ip" "unset_container_ip '$container_name'" "Release IP address"
     
-    # Setup busybox for the container
+    # Setup busybox for the container with error handling
     log_info "Setting up busybox for container" \
              "Seperti menyiapkan peralatan dasar untuk rumah baru"
     
     if ! setup_busybox "$container_name"; then
         log_error "Failed to setup busybox for container" \
                   "Gagal menyiapkan peralatan dasar rumah"
-        cleanup_failed_container "$container_name"
+        execute_rollback "create_container"
+        clear_operation_context "create_container"
         return 1
     fi
     
-    # Setup namespaces
+    # Add rollback action for busybox cleanup
+    add_rollback_action "cleanup_busybox" "rm -rf '$container_dir/rootfs/bin'" "Remove busybox setup"
+    
+    # Setup namespaces with comprehensive error handling
     log_info "Setting up namespaces for container" \
              "Seperti mengatur sistem internal rumah (penomoran, rak buku, nama, dll)"
+    
+    set_operation_context "setup_namespace" "$container_name"
     
     if ! setup_container_namespaces "$container_name" "$hostname"; then
         log_error "Failed to setup namespaces for container" \
                   "Gagal mengatur sistem internal rumah"
-        cleanup_failed_container "$container_name"
+        execute_rollback "create_container"
+        clear_operation_context "setup_namespace"
+        clear_operation_context "create_container"
         return 1
     fi
     
-    # Setup network namespace
+    # Add rollback action for namespace cleanup
+    add_rollback_action "cleanup_namespaces" "cleanup_container_namespaces '$container_name'" "Remove namespaces"
+    clear_operation_context "setup_namespace"
+    
+    # Setup network namespace with error handling
     log_info "Setting up network for container" \
              "Seperti memasang sambungan telepon rumah"
+    
+    set_operation_context "setup_network" "$container_name"
     
     if ! create_container_network "$container_name" "$container_ip"; then
         log_error "Failed to setup network for container" \
                   "Gagal memasang sambungan telepon rumah"
-        cleanup_failed_container "$container_name"
+        execute_rollback "create_container"
+        clear_operation_context "setup_network"
+        clear_operation_context "create_container"
         return 1
     fi
     
-    # Setup cgroups for resource limiting
+    # Add rollback action for network cleanup
+    add_rollback_action "cleanup_network" "cleanup_container_network '$container_name'" "Remove network setup"
+    clear_operation_context "setup_network"
+    
+    # Setup cgroups for resource limiting with error handling
     log_info "Setting up resource limits for container" \
              "Seperti mengatur pembatasan listrik dan air rumah"
+    
+    set_operation_context "setup_cgroup" "$container_name"
     
     if ! create_container_cgroup "$container_name" "$memory_mb" "$cpu_percent"; then
         log_error "Failed to setup resource limits for container" \
                   "Gagal mengatur pembatasan listrik dan air rumah"
-        cleanup_failed_container "$container_name"
+        execute_rollback "create_container"
+        clear_operation_context "setup_cgroup"
+        clear_operation_context "create_container"
         return 1
     fi
     
-    # Update status to created
+    # Add rollback action for cgroup cleanup
+    add_rollback_action "cleanup_cgroups" "cleanup_container_cgroups '$container_name'" "Remove resource limits"
+    clear_operation_context "setup_cgroup"
+    
+    # Update status to created with error handling
     if ! update_container_status "$container_name" "created"; then
         log_error "Failed to update container status" \
                   "Gagal mengupdate status rumah"
-        cleanup_failed_container "$container_name"
+        execute_rollback "create_container"
+        clear_operation_context "create_container"
         return 1
     fi
+    
+    # Clear rollback stack since creation was successful
+    ROLLBACK_STACK=()
+    RECOVERY_ACTIONS=()
+    
+    clear_operation_context "create_container"
     
     log_success "Container created successfully: $container_name" \
                 "Rumah '$container_name' berhasil dibangun lengkap dengan semua fasilitas"
     
-    # Show container information
+    # Show container information with enhanced details
     echo ""
-    echo "=== Container Information ==="
-    echo "Name: $container_name"
-    echo "Memory Limit: ${memory_mb}MB"
-    echo "CPU Limit: ${cpu_percent}%"
-    echo "IP Address: $container_ip"
-    echo "Hostname: $hostname"
-    echo "Status: created"
-    echo "============================"
+    echo -e "${COLOR_GREEN}=== Container Information ===${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}Name: $container_name${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}Memory Limit: ${memory_mb}MB${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}CPU Limit: ${cpu_percent}%${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}IP Address: $container_ip${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}Hostname: $hostname${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}Status: created${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}Error Handling: Enabled${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}============================${COLOR_RESET}"
     echo ""
     
     log_info "Container is ready to be started with: ./rt.sh run-container $container_name" \
@@ -2480,11 +3492,16 @@ delete_container() {
     local container_name=$1
     local force=${2:-false}
     
+    # Initialize comprehensive error handling
+    init_error_handling
+    set_operation_context "delete_container" "$container_name"
+    
     log_step 1 "Deleting container: $container_name" \
               "Seperti RT membongkar rumah dan membersihkan semua fasilitas"
     
     # Validate container name
     if ! validate_container_name "$container_name"; then
+        clear_operation_context "delete_container"
         return 1
     fi
     
@@ -2492,74 +3509,191 @@ delete_container() {
     if ! container_exists "$container_name"; then
         log_error "Container does not exist: $container_name" \
                   "Rumah dengan nama tersebut tidak ada di kompleks"
+        clear_operation_context "delete_container"
         return 1
     fi
     
-    # Load container metadata
-    load_container_metadata "$container_name" || true
+    # Load container metadata with error handling
+    local container_dir="$CONTAINERS_DIR/$container_name"
+    local config_file="$container_dir/config.json"
+    local container_ip=""
     
-    # Stop container if running
+    if [[ -f "$config_file" ]]; then
+        container_ip=$(grep -o '"ip_address":"[^"]*"' "$config_file" 2>/dev/null | cut -d'"' -f4 || echo "")
+        log_debug "Loaded container IP: $container_ip" \
+                  "Memuat nomor telepon rumah: $container_ip"
+    else
+        log_warn "Container metadata not found, proceeding with cleanup" \
+                 "Data rumah tidak ditemukan, melanjutkan pembersihan"
+    fi
+    
+    # Check if container is running and handle appropriately
+    local container_was_running=false
     if container_is_running "$container_name"; then
+        container_was_running=true
+        
         if [[ "$force" == "true" ]]; then
             log_info "Force stopping running container" \
                      "Seperti RT menghentikan paksa aktivitas rumah"
-            stop_container_force "$container_name"
+            
+            if ! stop_container_force "$container_name"; then
+                log_error "Failed to stop running container" \
+                          "Gagal menghentikan aktivitas rumah"
+                # Continue with cleanup anyway in force mode
+                log_warn "Continuing with cleanup despite stop failure" \
+                         "Melanjutkan pembersihan meskipun gagal menghentikan"
+            fi
         else
             log_error "Container is still running. Use --force to stop and delete" \
                       "Rumah masih aktif. Gunakan --force untuk menghentikan dan menghapus"
+            clear_operation_context "delete_container"
             return 1
         fi
     fi
     
-    # Cleanup network
+    # Track cleanup progress for potential rollback
+    local cleanup_steps=()
+    local cleanup_errors=()
+    
+    # Cleanup network with error tracking
     log_info "Cleaning up container network" \
              "Seperti memutus sambungan telepon rumah"
     
-    cleanup_container_network "$container_name" || true
+    if cleanup_container_network "$container_name"; then
+        cleanup_steps+=("network")
+        log_debug "Network cleanup successful"
+    else
+        cleanup_errors+=("network_cleanup_failed")
+        log_warn "Network cleanup failed, continuing..." \
+                 "Gagal membersihkan jaringan, melanjutkan..."
+    fi
     
-    # Cleanup cgroups
+    # Cleanup cgroups with error tracking
     log_info "Cleaning up resource limits" \
              "Seperti menghapus pembatasan listrik dan air rumah"
     
-    cleanup_container_cgroup "$container_name" || true
+    if cleanup_container_cgroups "$container_name"; then
+        cleanup_steps+=("cgroups")
+        log_debug "Cgroups cleanup successful"
+    else
+        cleanup_errors+=("cgroups_cleanup_failed")
+        log_warn "Cgroups cleanup failed, continuing..." \
+                 "Gagal membersihkan pembatasan resource, melanjutkan..."
+    fi
     
-    # Cleanup namespaces (they should be cleaned up automatically when process dies)
+    # Cleanup namespaces with error tracking
     log_info "Cleaning up namespaces" \
              "Seperti menghapus sistem internal rumah"
     
-    cleanup_container_namespaces "$container_name" || true
-    
-    # Remove IP address reservation
-    if [[ -n "${CONTAINER_IP:-}" ]]; then
-        unset CONTAINER_IPS["$CONTAINER_IP"]
-        log_debug "Released IP address: $CONTAINER_IP" \
-                  "Nomor telepon rumah dikembalikan ke pool"
+    if cleanup_container_namespaces "$container_name"; then
+        cleanup_steps+=("namespaces")
+        log_debug "Namespaces cleanup successful"
+    else
+        cleanup_errors+=("namespaces_cleanup_failed")
+        log_warn "Namespaces cleanup failed, continuing..." \
+                 "Gagal membersihkan namespace, melanjutkan..."
     fi
     
-    # Remove container directory
+    # Release IP address with error handling
+    if [[ -n "$container_ip" ]]; then
+        log_info "Releasing IP address: $container_ip" \
+                 "Mengembalikan nomor telepon: $container_ip"
+        
+        if unset_container_ip "$container_name" 2>/dev/null; then
+            cleanup_steps+=("ip_release")
+            log_debug "IP address released successfully"
+        else
+            cleanup_errors+=("ip_release_failed")
+            log_warn "Failed to release IP address, continuing..." \
+                     "Gagal mengembalikan nomor telepon, melanjutkan..."
+        fi
+    fi
+    
+    # Remove container directory with comprehensive cleanup
     log_info "Removing container files" \
              "Seperti membersihkan sisa-sisa rumah"
     
-    local container_dir="$CONTAINERS_DIR/$container_name"
     if [[ -d "$container_dir" ]]; then
-        # Unmount any remaining mounts
-        umount "$container_dir/rootfs/proc" 2>/dev/null || true
-        umount "$container_dir/rootfs/sys" 2>/dev/null || true
-        umount "$container_dir/rootfs/dev" 2>/dev/null || true
-        umount "$container_dir/rootfs/tmp" 2>/dev/null || true
+        # Unmount any remaining mounts with error handling
+        local mount_points=("/proc" "/sys" "/dev/pts" "/dev" "/tmp")
+        for mount_point in "${mount_points[@]}"; do
+            local full_path="$container_dir/rootfs$mount_point"
+            if mountpoint -q "$full_path" 2>/dev/null; then
+                log_debug "Unmounting: $full_path"
+                if ! umount "$full_path" 2>/dev/null; then
+                    log_warn "Failed to unmount: $full_path" \
+                             "Gagal melepas mount: $mount_point"
+                    # Try force unmount
+                    umount -f "$full_path" 2>/dev/null || true
+                fi
+            fi
+        done
         
-        # Remove directory
-        rm -rf "$container_dir"
+        # Remove directory with retry mechanism
+        local retry_count=0
+        local max_retries=3
+        
+        while [[ $retry_count -lt $max_retries ]]; do
+            if rm -rf "$container_dir" 2>/dev/null; then
+                cleanup_steps+=("directory_removal")
+                log_debug "Container directory removed successfully"
+                break
+            else
+                retry_count=$((retry_count + 1))
+                log_warn "Failed to remove container directory (attempt $retry_count/$max_retries)" \
+                         "Gagal menghapus direktori rumah (percobaan $retry_count/$max_retries)"
+                
+                if [[ $retry_count -lt $max_retries ]]; then
+                    sleep 1
+                    # Try to kill any remaining processes that might be holding files
+                    if [[ "$container_was_running" == "true" ]]; then
+                        pkill -f "$container_name" 2>/dev/null || true
+                    fi
+                else
+                    cleanup_errors+=("directory_removal_failed")
+                    log_error "Failed to remove container directory after $max_retries attempts" \
+                              "Gagal menghapus direktori rumah setelah $max_retries percobaan"
+                fi
+            fi
+        done
     fi
     
     # Remove from active tracking
-    unset ACTIVE_NAMESPACES["$container_name"]
-    unset ACTIVE_NETWORKS["$container_name"]
+    unset_container_namespace "$container_name" 2>/dev/null || true
     
-    log_success "Container deleted successfully: $container_name" \
-                "Rumah '$container_name' berhasil dibongkar dan dibersihkan dari kompleks"
+    # Report cleanup results
+    local total_steps=${#cleanup_steps[@]}
+    local total_errors=${#cleanup_errors[@]}
     
-    return 0
+    clear_operation_context "delete_container"
+    
+    if [[ $total_errors -eq 0 ]]; then
+        log_success "Container deleted successfully: $container_name" \
+                    "Rumah '$container_name' berhasil dibongkar dan dibersihkan dari kompleks"
+        
+        echo -e "\n${COLOR_GREEN}📋 Cleanup Summary:${COLOR_RESET}"
+        echo -e "${COLOR_GREEN}├── Steps completed: $total_steps${COLOR_RESET}"
+        echo -e "${COLOR_GREEN}├── Errors: $total_errors${COLOR_RESET}"
+        echo -e "${COLOR_GREEN}└── Status: Complete${COLOR_RESET}"
+        
+        return 0
+    else
+        log_warn "Container deletion completed with $total_errors errors: $container_name" \
+                 "Penghapusan rumah selesai dengan $total_errors masalah: $container_name"
+        
+        echo -e "\n${COLOR_YELLOW}📋 Cleanup Summary:${COLOR_RESET}"
+        echo -e "${COLOR_YELLOW}├── Steps completed: $total_steps${COLOR_RESET}"
+        echo -e "${COLOR_YELLOW}├── Errors: $total_errors${COLOR_RESET}"
+        echo -e "${COLOR_YELLOW}├── Failed steps: ${cleanup_errors[*]}${COLOR_RESET}"
+        echo -e "${COLOR_YELLOW}└── Status: Partial${COLOR_RESET}"
+        
+        echo -e "\n${COLOR_CYAN}💡 Troubleshooting:${COLOR_RESET}"
+        echo -e "${COLOR_CYAN}├── Run: $0 debug containers${COLOR_RESET}"
+        echo -e "${COLOR_CYAN}├── Check: $0 recover-state${COLOR_RESET}"
+        echo -e "${COLOR_CYAN}└── Manual cleanup: $0 cleanup-all${COLOR_RESET}"
+        
+        return 1
+    fi
 }
 
 # Stop container forcefully
@@ -4392,6 +5526,280 @@ cleanup_test_network() {
 }
 
 # =============================================================================
+# RECOVERY AND ERROR HANDLING COMMAND HANDLERS
+# =============================================================================
+
+# Recovery command handler
+cmd_recover_state() {
+    local container_name="$1"
+    
+    log_info "Starting system state recovery..." \
+             "Seperti RT melakukan pemulihan kondisi kompleks perumahan"
+    
+    # Initialize error handling
+    init_error_handling
+    set_operation_context "recover_state" "$container_name"
+    
+    if [[ -n "$container_name" ]]; then
+        log_info "Recovering specific container: $container_name" \
+                 "Memulihkan rumah tertentu: $container_name"
+        
+        if ! validate_container_name "$container_name"; then
+            clear_operation_context "recover_state"
+            return 1
+        fi
+        
+        if ! container_exists "$container_name"; then
+            log_error "Container '$container_name' does not exist" \
+                      "Rumah '$container_name' tidak ditemukan"
+            clear_operation_context "recover_state"
+            return 1
+        fi
+        
+        detect_and_recover_corrupted_state "$container_name"
+    else
+        log_info "Recovering all containers..." \
+                 "Memulihkan semua rumah di kompleks"
+        
+        detect_and_recover_corrupted_state
+    fi
+    
+    clear_operation_context "recover_state"
+    
+    log_success "State recovery completed" \
+                "Pemulihan kondisi kompleks selesai"
+    
+    return 0
+}
+
+# System validation command handler
+cmd_validate_system() {
+    log_info "Validating system state..." \
+             "Seperti RT melakukan inspeksi menyeluruh kompleks"
+    
+    init_error_handling
+    set_operation_context "validate_system" ""
+    
+    local validation_passed=true
+    local issues_found=()
+    
+    # Check basic system requirements
+    echo -e "\n${COLOR_BLUE}🔍 SYSTEM VALIDATION REPORT${COLOR_RESET}"
+    echo -e "${COLOR_BLUE}===========================${COLOR_RESET}\n"
+    
+    # Check privileges
+    echo -e "${COLOR_GREEN}📋 Checking system privileges...${COLOR_RESET}"
+    if [[ $EUID -eq 0 ]]; then
+        echo -e "${COLOR_GREEN}   ✅ Root privileges: Available${COLOR_RESET}"
+    else
+        echo -e "${COLOR_RED}   ❌ Root privileges: Missing${COLOR_RESET}"
+        issues_found+=("missing_root_privileges")
+        validation_passed=false
+    fi
+    
+    # Check dependencies
+    echo -e "\n${COLOR_GREEN}📋 Checking required commands...${COLOR_RESET}"
+    local required_commands=("unshare" "nsenter" "ip" "mount" "umount")
+    for cmd in "${required_commands[@]}"; do
+        if command -v "$cmd" &> /dev/null; then
+            echo -e "${COLOR_GREEN}   ✅ $cmd: Available${COLOR_RESET}"
+        else
+            echo -e "${COLOR_RED}   ❌ $cmd: Missing${COLOR_RESET}"
+            issues_found+=("missing_command_$cmd")
+            validation_passed=false
+        fi
+    done
+    
+    # Check system resources
+    echo -e "\n${COLOR_GREEN}📋 Checking system resources...${COLOR_RESET}"
+    
+    # Check disk space
+    local available_space=$(df "$CONTAINERS_DIR" 2>/dev/null | tail -1 | awk '{print $4}' || echo "0")
+    if [[ $available_space -gt 100000 ]]; then  # More than 100MB
+        echo -e "${COLOR_GREEN}   ✅ Disk space: $(( available_space / 1024 ))MB available${COLOR_RESET}"
+    else
+        echo -e "${COLOR_RED}   ❌ Disk space: Low ($(( available_space / 1024 ))MB)${COLOR_RESET}"
+        issues_found+=("low_disk_space")
+        validation_passed=false
+    fi
+    
+    # Check memory
+    if command -v free &> /dev/null; then
+        local available_memory=$(free | grep '^Mem:' | awk '{print $7}' 2>/dev/null || echo "0")
+        if [[ $available_memory -gt 100000 ]]; then  # More than 100MB
+            echo -e "${COLOR_GREEN}   ✅ Memory: $(( available_memory / 1024 ))MB available${COLOR_RESET}"
+        else
+            echo -e "${COLOR_YELLOW}   ⚠️  Memory: Low ($(( available_memory / 1024 ))MB)${COLOR_RESET}"
+            issues_found+=("low_memory")
+        fi
+    fi
+    
+    # Check cgroups
+    echo -e "\n${COLOR_GREEN}📋 Checking cgroups availability...${COLOR_RESET}"
+    if [[ -d "$CGROUP_ROOT" ]]; then
+        echo -e "${COLOR_GREEN}   ✅ Cgroups root: Available at $CGROUP_ROOT${COLOR_RESET}"
+        
+        if [[ -d "$CGROUP_ROOT/memory" ]]; then
+            echo -e "${COLOR_GREEN}   ✅ Memory cgroup: Available${COLOR_RESET}"
+        else
+            echo -e "${COLOR_RED}   ❌ Memory cgroup: Not available${COLOR_RESET}"
+            issues_found+=("missing_memory_cgroup")
+            validation_passed=false
+        fi
+        
+        if [[ -d "$CGROUP_ROOT/cpu" ]]; then
+            echo -e "${COLOR_GREEN}   ✅ CPU cgroup: Available${COLOR_RESET}"
+        else
+            echo -e "${COLOR_RED}   ❌ CPU cgroup: Not available${COLOR_RESET}"
+            issues_found+=("missing_cpu_cgroup")
+            validation_passed=false
+        fi
+    else
+        echo -e "${COLOR_RED}   ❌ Cgroups root: Not available${COLOR_RESET}"
+        issues_found+=("missing_cgroups")
+        validation_passed=false
+    fi
+    
+    # Check busybox
+    echo -e "\n${COLOR_GREEN}📋 Checking busybox availability...${COLOR_RESET}"
+    if [[ -x "$BUSYBOX_PATH" ]]; then
+        echo -e "${COLOR_GREEN}   ✅ Busybox: Available at $BUSYBOX_PATH${COLOR_RESET}"
+        
+        if test_busybox_basic_functionality &>/dev/null; then
+            echo -e "${COLOR_GREEN}   ✅ Busybox functionality: Working${COLOR_RESET}"
+        else
+            echo -e "${COLOR_RED}   ❌ Busybox functionality: Failed${COLOR_RESET}"
+            issues_found+=("busybox_not_functional")
+            validation_passed=false
+        fi
+    else
+        echo -e "${COLOR_YELLOW}   ⚠️  Busybox: Not found (will be created)${COLOR_RESET}"
+    fi
+    
+    # Check for corrupted containers
+    echo -e "\n${COLOR_GREEN}📋 Checking container integrity...${COLOR_RESET}"
+    local corrupted_containers=()
+    
+    if [[ -d "$CONTAINERS_DIR" ]]; then
+        for container_dir in "$CONTAINERS_DIR"/*; do
+            if [[ -d "$container_dir" && "$(basename "$container_dir")" != "busybox" ]]; then
+                local container_name=$(basename "$container_dir")
+                if check_container_corruption "$container_name"; then
+                    corrupted_containers+=("$container_name")
+                fi
+            fi
+        done
+    fi
+    
+    if [[ ${#corrupted_containers[@]} -eq 0 ]]; then
+        echo -e "${COLOR_GREEN}   ✅ Container integrity: All containers healthy${COLOR_RESET}"
+    else
+        echo -e "${COLOR_YELLOW}   ⚠️  Container integrity: ${#corrupted_containers[@]} corrupted containers found${COLOR_RESET}"
+        for container in "${corrupted_containers[@]}"; do
+            echo -e "${COLOR_YELLOW}      - $container${COLOR_RESET}"
+        done
+        issues_found+=("corrupted_containers")
+    fi
+    
+    # Summary
+    echo -e "\n${COLOR_BLUE}📊 VALIDATION SUMMARY${COLOR_RESET}"
+    echo -e "${COLOR_BLUE}===================${COLOR_RESET}"
+    
+    if [[ "$validation_passed" == "true" ]]; then
+        echo -e "${COLOR_GREEN}✅ System Status: HEALTHY${COLOR_RESET}"
+        echo -e "${COLOR_GREEN}   All critical components are working properly${COLOR_RESET}"
+        
+        if [[ ${#corrupted_containers[@]} -gt 0 ]]; then
+            echo -e "\n${COLOR_YELLOW}💡 Recommendations:${COLOR_RESET}"
+            echo -e "${COLOR_YELLOW}   Run: $0 recover-state${COLOR_RESET}"
+        fi
+    else
+        echo -e "${COLOR_RED}❌ System Status: ISSUES FOUND${COLOR_RESET}"
+        echo -e "${COLOR_RED}   Issues detected: ${#issues_found[@]}${COLOR_RESET}"
+        
+        echo -e "\n${COLOR_YELLOW}🔧 Required Actions:${COLOR_RESET}"
+        for issue in "${issues_found[@]}"; do
+            case "$issue" in
+                "missing_root_privileges")
+                    echo -e "${COLOR_YELLOW}   - Run with sudo: sudo $0 validate-system${COLOR_RESET}"
+                    ;;
+                "missing_command_"*)
+                    local cmd="${issue#missing_command_}"
+                    echo -e "${COLOR_YELLOW}   - Install missing command: $cmd${COLOR_RESET}"
+                    ;;
+                "low_disk_space")
+                    echo -e "${COLOR_YELLOW}   - Free up disk space in $CONTAINERS_DIR${COLOR_RESET}"
+                    ;;
+                "missing_cgroups"|"missing_memory_cgroup"|"missing_cpu_cgroup")
+                    echo -e "${COLOR_YELLOW}   - Enable cgroups in kernel configuration${COLOR_RESET}"
+                    ;;
+                "busybox_not_functional")
+                    echo -e "${COLOR_YELLOW}   - Reinstall or fix busybox binary${COLOR_RESET}"
+                    ;;
+                "corrupted_containers")
+                    echo -e "${COLOR_YELLOW}   - Run recovery: $0 recover-state${COLOR_RESET}"
+                    ;;
+            esac
+        done
+    fi
+    
+    clear_operation_context "validate_system"
+    
+    if [[ "$validation_passed" == "true" ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Emergency cleanup command handler
+cmd_emergency_cleanup() {
+    log_warn "Starting emergency cleanup..." \
+             "Seperti RT melakukan pembersihan darurat kompleks"
+    
+    init_error_handling
+    set_operation_context "emergency_cleanup" ""
+    
+    echo -e "\n${COLOR_RED}🚨 EMERGENCY CLEANUP MODE${COLOR_RESET}"
+    echo -e "${COLOR_RED}=========================${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_YELLOW}⚠️  This will forcefully clean up all container resources!${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}   - All running containers will be stopped${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}   - All container data will be removed${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}   - All network interfaces will be cleaned${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}   - All cgroups will be removed${COLOR_RESET}\n"
+    
+    read -p "Are you sure you want to continue? (yes/no): " -r
+    if [[ ! "$REPLY" =~ ^[Yy][Ee][Ss]$ ]]; then
+        log_info "Emergency cleanup cancelled by user" \
+                 "Pembersihan darurat dibatalkan oleh pengguna"
+        clear_operation_context "emergency_cleanup"
+        return 0
+    fi
+    
+    log_warn "Proceeding with emergency cleanup..." \
+             "Melanjutkan pembersihan darurat..."
+    
+    # Set recovery flag to prevent recursive cleanup
+    RECOVERY_IN_PROGRESS=true
+    
+    perform_emergency_cleanup
+    
+    RECOVERY_IN_PROGRESS=false
+    
+    clear_operation_context "emergency_cleanup"
+    
+    log_success "Emergency cleanup completed" \
+                "Pembersihan darurat selesai"
+    
+    echo -e "\n${COLOR_GREEN}✅ Emergency cleanup completed successfully${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}   All container resources have been cleaned up${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}   System is ready for fresh container creation${COLOR_RESET}\n"
+    
+    return 0
+}
+
+# =============================================================================
 # MAIN ENTRY POINT PLACEHOLDER
 # =============================================================================
 
@@ -5142,6 +6550,11 @@ CONTAINER LIFECYCLE COMMANDS:
     delete-container <name>         Delete container and cleanup all resources
     cleanup-all                     Emergency cleanup of all containers and resources
 
+ERROR HANDLING & RECOVERY COMMANDS:
+    recover-state [container]       Detect and recover corrupted container states
+    validate-system                 Comprehensive system health check
+    emergency-cleanup               Force cleanup all resources (destructive)
+
 NETWORK COMMANDS (Task 6 Implementation):
     test-network                    Test network functionality
     create-test-network [name1] [name2]  Create test network with 2 containers
@@ -5160,6 +6573,12 @@ EXAMPLES:
     $0 run-container rumah-a /bin/ls
     $0 delete-container rumah-a
     $0 cleanup-all
+
+    # Error handling and recovery
+    $0 validate-system
+    $0 recover-state
+    $0 recover-state webapp
+    $0 emergency-cleanup
 
     # Network testing
     $0 test-network
@@ -5218,7 +6637,7 @@ main() {
     
     # Check dependencies and privileges for commands that need them
     case "$command" in
-        create-container|run-container|delete-container|cleanup-all|test-network|create-test-network|cleanup-test-network|show-network|test-connectivity|monitor-network|debug-network|list-networks|monitor|show-topology|debug)
+        create-container|run-container|delete-container|cleanup-all|test-network|create-test-network|cleanup-test-network|show-network|test-connectivity|monitor-network|debug-network|list-networks|monitor|show-topology|debug|recover-state|validate-system|emergency-cleanup)
             check_dependencies
             check_privileges
             ;;
@@ -5314,6 +6733,16 @@ main() {
         "debug")
             local component=${2:-"all"}
             show_debug_info "$component"
+            ;;
+        "recover-state"|"recover")
+            local container_name=${2:-""}
+            cmd_recover_state "$container_name"
+            ;;
+        "validate-system")
+            cmd_validate_system
+            ;;
+        "emergency-cleanup")
+            cmd_emergency_cleanup
             ;;
         "help"|"--help"|"-h")
             local topic=${2:-""}
