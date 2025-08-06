@@ -98,8 +98,12 @@ run_test_suite "Namespace Management Tests" "./namespace-tests.sh" true
 run_test_suite "Cgroup Management Tests" "./cgroup-tests.sh" true
 run_test_suite "Network Management Tests" "./network-tests.sh" true
 
-# Phase 3: Advanced Tests (require root)
-echo -e "\n${BLUE}🚀 PHASE 3: ADVANCED TESTS${NC}"
+# Phase 3: Security Tests (mixed privileges)
+echo -e "\n${BLUE}🔒 PHASE 3: SECURITY TESTS${NC}"
+run_test_suite "Security Features Tests" "./security-tests.sh" false
+
+# Phase 4: Advanced Tests (require root)
+echo -e "\n${BLUE}🚀 PHASE 4: ADVANCED TESTS${NC}"
 run_test_suite "Resource Validation Tests" "./resource-validation-tests.sh" true
 run_test_suite "Stress Tests" "./stress-tests.sh" true
 run_test_suite "Cleanup Verification Tests" "./cleanup-verification-tests.sh" true

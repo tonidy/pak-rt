@@ -770,15 +770,562 @@ validate_system_state() {
 }
 
 # =============================================================================
+# SECURITY FEATURES AND PRIVILEGE MANAGEMENT
+# =============================================================================
+
+# Input sanitization functions
+sanitize_container_name() {
+    local input=$1
+    
+    # Remove any potentially dangerous characters
+    local sanitized=$(echo "$input" | tr -cd '[:alnum:]_-')
+    
+    # Ensure it doesn't start with special characters
+    sanitized=$(echo "$sanitized" | sed 's/^[-_]*//')
+    
+    # Limit length to prevent buffer overflow attacks
+    if [[ ${#sanitized} -gt 50 ]]; then
+        sanitized=${sanitized:0:50}
+    fi
+    
+    echo "$sanitized"
+}
+
+# Sanitize numeric input (memory, CPU)
+sanitize_numeric_input() {
+    local input=$1
+    local max_value=${2:-999999}
+    
+    # Remove any non-numeric characters
+    local sanitized=$(echo "$input" | tr -cd '[:digit:]')
+    
+    # Ensure it's not empty
+    if [[ -z "$sanitized" ]]; then
+        sanitized="0"
+    fi
+    
+    # Limit to reasonable maximum
+    if [[ $sanitized -gt $max_value ]]; then
+        sanitized=$max_value
+    fi
+    
+    echo "$sanitized"
+}
+
+# Sanitize file paths to prevent directory traversal
+sanitize_file_path() {
+    local input=$1
+    local base_dir=${2:-"$CONTAINERS_DIR"}
+    
+    # Remove any directory traversal attempts
+    local sanitized=$(echo "$input" | sed 's/\.\.//g' | sed 's/\/\+/\//g')
+    
+    # Remove leading slashes to prevent absolute path injection
+    sanitized=$(echo "$sanitized" | sed 's/^\/*//')
+    
+    # Ensure path stays within base directory
+    local full_path="$base_dir/$sanitized"
+    local canonical_base=$(readlink -f "$base_dir" 2>/dev/null || echo "$base_dir")
+    local canonical_path=$(readlink -f "$full_path" 2>/dev/null || echo "$full_path")
+    
+    # Check if canonical path starts with canonical base
+    if [[ "$canonical_path" != "$canonical_base"* ]]; then
+        log_error "Path traversal attempt detected: $input" \
+                  "Seperti ada yang mencoba mengakses area terlarang di kompleks"
+        return 1
+    fi
+    
+    echo "$sanitized"
+}
+
+# Enhanced privilege checking with detailed validation
+check_enhanced_privileges() {
+    local operation=${1:-"general"}
+    
+    log_debug "Checking enhanced privileges for operation: $operation" \
+              "Seperti RT memeriksa wewenang untuk tugas: $operation"
+    
+    # Check if running as root
+    if [[ $EUID -ne 0 ]]; then
+        log_error "Root privileges required for $operation" \
+                  "Seperti RT memerlukan wewenang khusus untuk: $operation"
+        return 1
+    fi
+    
+    # Check specific capabilities based on operation
+    case "$operation" in
+        "namespace_operations")
+            if ! check_capability "CAP_SYS_ADMIN"; then
+                log_error "CAP_SYS_ADMIN capability required for namespace operations" \
+                          "Diperlukan izin khusus untuk mengelola namespace"
+                return 1
+            fi
+            ;;
+        "network_operations")
+            if ! check_capability "CAP_NET_ADMIN"; then
+                log_error "CAP_NET_ADMIN capability required for network operations" \
+                          "Diperlukan izin khusus untuk mengelola jaringan"
+                return 1
+            fi
+            ;;
+        "cgroup_operations")
+            if [[ ! -w "$CGROUP_ROOT" ]]; then
+                log_error "Write access to cgroup filesystem required" \
+                          "Diperlukan akses tulis ke sistem cgroup"
+                return 1
+            fi
+            ;;
+    esac
+    
+    return 0
+}
+
+# Check specific Linux capabilities
+check_capability() {
+    local capability=$1
+    
+    # Check if capability is available (simplified check)
+    if command -v capsh &> /dev/null; then
+        if capsh --print | grep -q "$capability"; then
+            return 0
+        else
+            return 1
+        fi
+    else
+        # Fallback: assume capability is available if running as root
+        [[ $EUID -eq 0 ]]
+    fi
+}
+
+# Secure temporary file handling
+create_secure_temp_file() {
+    local prefix=${1:-"rt_container"}
+    local suffix=${2:-".tmp"}
+    
+    # Create secure temporary file with restricted permissions
+    local temp_file=$(mktemp -t "${prefix}_XXXXXX${suffix}")
+    
+    if [[ -z "$temp_file" || ! -f "$temp_file" ]]; then
+        log_error "Failed to create secure temporary file" \
+                  "Gagal membuat file sementara yang aman"
+        return 1
+    fi
+    
+    # Set restrictive permissions (owner read/write only)
+    chmod 600 "$temp_file"
+    
+    # Add to cleanup list
+    add_rollback_action "cleanup_temp_file_$temp_file" "rm -f '$temp_file'" "Remove temporary file"
+    
+    log_debug "Created secure temporary file: $temp_file" \
+              "Membuat file sementara yang aman: $temp_file"
+    
+    echo "$temp_file"
+}
+
+# Secure temporary directory handling
+create_secure_temp_dir() {
+    local prefix=${1:-"rt_container"}
+    
+    # Create secure temporary directory with restricted permissions
+    local temp_dir=$(mktemp -d -t "${prefix}_XXXXXX")
+    
+    if [[ -z "$temp_dir" || ! -d "$temp_dir" ]]; then
+        log_error "Failed to create secure temporary directory" \
+                  "Gagal membuat direktori sementara yang aman"
+        return 1
+    fi
+    
+    # Set restrictive permissions (owner access only)
+    chmod 700 "$temp_dir"
+    
+    # Add to cleanup list
+    add_rollback_action "cleanup_temp_dir_$temp_dir" "rm -rf '$temp_dir'" "Remove temporary directory"
+    
+    log_debug "Created secure temporary directory: $temp_dir" \
+              "Membuat direktori sementara yang aman: $temp_dir"
+    
+    echo "$temp_dir"
+}
+
+# Container isolation verification
+verify_container_isolation() {
+    local container_name=$1
+    local container_dir="$CONTAINERS_DIR/$container_name"
+    
+    log_info "Verifying container isolation for: $container_name" \
+             "Seperti RT memeriksa isolasi rumah: $container_name"
+    
+    local isolation_issues=()
+    
+    # Check PID namespace isolation
+    if ! verify_pid_namespace_isolation "$container_name"; then
+        isolation_issues+=("pid_namespace")
+    fi
+    
+    # Check mount namespace isolation
+    if ! verify_mount_namespace_isolation "$container_name"; then
+        isolation_issues+=("mount_namespace")
+    fi
+    
+    # Check network namespace isolation
+    if ! verify_network_namespace_isolation "$container_name"; then
+        isolation_issues+=("network_namespace")
+    fi
+    
+    # Check cgroup isolation
+    if ! verify_cgroup_isolation "$container_name"; then
+        isolation_issues+=("cgroup_isolation")
+    fi
+    
+    # Check filesystem isolation
+    if ! verify_filesystem_isolation "$container_name"; then
+        isolation_issues+=("filesystem_isolation")
+    fi
+    
+    if [[ ${#isolation_issues[@]} -gt 0 ]]; then
+        log_error "Container isolation issues detected: ${isolation_issues[*]}" \
+                  "Ditemukan masalah isolasi pada rumah: $container_name"
+        return 1
+    fi
+    
+    log_success "Container isolation verified successfully" \
+                "Isolasi rumah terkonfirmasi aman: $container_name"
+    return 0
+}
+
+# Verify PID namespace isolation
+verify_pid_namespace_isolation() {
+    local container_name=$1
+    local pid_file="$CONTAINERS_DIR/$container_name/container.pid"
+    
+    if [[ ! -f "$pid_file" ]]; then
+        return 1  # Container not running
+    fi
+    
+    local container_pid=$(cat "$pid_file" 2>/dev/null || echo "")
+    if [[ -z "$container_pid" ]] || ! kill -0 "$container_pid" 2>/dev/null; then
+        return 1  # Invalid or dead PID
+    fi
+    
+    # Check if container process is in different PID namespace
+    local host_pid_ns=$(readlink /proc/self/ns/pid 2>/dev/null || echo "")
+    local container_pid_ns=$(readlink "/proc/$container_pid/ns/pid" 2>/dev/null || echo "")
+    
+    if [[ -n "$host_pid_ns" && -n "$container_pid_ns" && "$host_pid_ns" != "$container_pid_ns" ]]; then
+        log_debug "PID namespace isolation verified" \
+                  "Isolasi nomor proses rumah terkonfirmasi"
+        return 0
+    fi
+    
+    return 1
+}
+
+# Verify mount namespace isolation
+verify_mount_namespace_isolation() {
+    local container_name=$1
+    local pid_file="$CONTAINERS_DIR/$container_name/container.pid"
+    
+    if [[ ! -f "$pid_file" ]]; then
+        return 1
+    fi
+    
+    local container_pid=$(cat "$pid_file" 2>/dev/null || echo "")
+    if [[ -z "$container_pid" ]] || ! kill -0 "$container_pid" 2>/dev/null; then
+        return 1
+    fi
+    
+    # Check if container process is in different mount namespace
+    local host_mnt_ns=$(readlink /proc/self/ns/mnt 2>/dev/null || echo "")
+    local container_mnt_ns=$(readlink "/proc/$container_pid/ns/mnt" 2>/dev/null || echo "")
+    
+    if [[ -n "$host_mnt_ns" && -n "$container_mnt_ns" && "$host_mnt_ns" != "$container_mnt_ns" ]]; then
+        log_debug "Mount namespace isolation verified" \
+                  "Isolasi sistem file rumah terkonfirmasi"
+        return 0
+    fi
+    
+    return 1
+}
+
+# Verify network namespace isolation
+verify_network_namespace_isolation() {
+    local container_name=$1
+    
+    # Check if network namespace exists
+    if ip netns list 2>/dev/null | grep -q "container-$container_name"; then
+        log_debug "Network namespace isolation verified" \
+                  "Isolasi jaringan rumah terkonfirmasi"
+        return 0
+    fi
+    
+    return 1
+}
+
+# Verify cgroup isolation
+verify_cgroup_isolation() {
+    local container_name=$1
+    local memory_cgroup="$CGROUP_ROOT/memory/container-$container_name"
+    local cpu_cgroup="$CGROUP_ROOT/cpu/container-$container_name"
+    
+    # Check if cgroups exist and have proper limits
+    if [[ -d "$memory_cgroup" && -d "$cpu_cgroup" ]]; then
+        # Verify memory limit is set
+        if [[ -f "$memory_cgroup/memory.limit_in_bytes" ]]; then
+            local memory_limit=$(cat "$memory_cgroup/memory.limit_in_bytes" 2>/dev/null || echo "0")
+            if [[ $memory_limit -gt 0 && $memory_limit -lt 9223372036854775807 ]]; then  # Not unlimited
+                log_debug "Cgroup isolation verified" \
+                          "Isolasi resource rumah terkonfirmasi"
+                return 0
+            fi
+        fi
+    fi
+    
+    return 1
+}
+
+# Verify filesystem isolation
+verify_filesystem_isolation() {
+    local container_name=$1
+    local container_rootfs="$CONTAINERS_DIR/$container_name/rootfs"
+    
+    # Check if container has isolated rootfs
+    if [[ -d "$container_rootfs" ]]; then
+        # Verify essential directories exist and are properly isolated
+        local essential_dirs=("bin" "proc" "sys" "tmp")
+        for dir in "${essential_dirs[@]}"; do
+            if [[ ! -d "$container_rootfs/$dir" ]]; then
+                return 1
+            fi
+        done
+        
+        log_debug "Filesystem isolation verified" \
+                  "Isolasi sistem file rumah terkonfirmasi"
+        return 0
+    fi
+    
+    return 1
+}
+
+# Security audit functions
+perform_security_audit() {
+    local scope=${1:-"all"}  # all, container, system
+    local container_name=${2:-""}
+    
+    log_info "Performing security audit (scope: $scope)" \
+             "Seperti RT melakukan audit keamanan kompleks"
+    
+    local audit_results=()
+    local security_issues=()
+    
+    case "$scope" in
+        "all")
+            audit_results+=($(audit_system_security))
+            audit_results+=($(audit_all_containers_security))
+            ;;
+        "container")
+            if [[ -n "$container_name" ]]; then
+                audit_results+=($(audit_container_security "$container_name"))
+            else
+                log_error "Container name required for container audit" \
+                          "Nama rumah diperlukan untuk audit rumah"
+                return 1
+            fi
+            ;;
+        "system")
+            audit_results+=($(audit_system_security))
+            ;;
+        *)
+            log_error "Invalid audit scope: $scope" \
+                      "Ruang lingkup audit tidak valid"
+            return 1
+            ;;
+    esac
+    
+    # Process audit results
+    for result in "${audit_results[@]}"; do
+        if [[ "$result" =~ ^ISSUE: ]]; then
+            security_issues+=("${result#ISSUE: }")
+        fi
+    done
+    
+    # Report results
+    if [[ ${#security_issues[@]} -eq 0 ]]; then
+        log_success "Security audit completed - no issues found" \
+                    "Audit keamanan selesai - kompleks aman"
+    else
+        log_warn "Security audit found ${#security_issues[@]} issues:" \
+                 "Audit keamanan menemukan ${#security_issues[@]} masalah:"
+        for issue in "${security_issues[@]}"; do
+            log_warn "  - $issue"
+        done
+    fi
+    
+    return 0
+}
+
+# Audit system-level security
+audit_system_security() {
+    local issues=()
+    
+    # Check if running with appropriate privileges
+    if [[ $EUID -ne 0 ]]; then
+        issues+=("ISSUE: Not running with root privileges")
+    fi
+    
+    # Check cgroup availability and permissions
+    if [[ ! -d "$CGROUP_ROOT" ]]; then
+        issues+=("ISSUE: Cgroup filesystem not available")
+    elif [[ ! -w "$CGROUP_ROOT" ]]; then
+        issues+=("ISSUE: No write access to cgroup filesystem")
+    fi
+    
+    # Check containers directory security
+    if [[ -d "$CONTAINERS_DIR" ]]; then
+        local dir_perms=$(stat -c "%a" "$CONTAINERS_DIR" 2>/dev/null || echo "000")
+        if [[ "$dir_perms" != "755" && "$dir_perms" != "700" ]]; then
+            issues+=("ISSUE: Containers directory has insecure permissions: $dir_perms")
+        fi
+    fi
+    
+    # Check for world-writable files in containers directory
+    if [[ -d "$CONTAINERS_DIR" ]]; then
+        local world_writable=$(find "$CONTAINERS_DIR" -type f -perm -002 2>/dev/null | wc -l)
+        if [[ $world_writable -gt 0 ]]; then
+            issues+=("ISSUE: Found $world_writable world-writable files in containers directory")
+        fi
+    fi
+    
+    # Check busybox binary security
+    if [[ -f "$BUSYBOX_PATH" ]]; then
+        local busybox_perms=$(stat -c "%a" "$BUSYBOX_PATH" 2>/dev/null || echo "000")
+        if [[ "$busybox_perms" != "755" ]]; then
+            issues+=("ISSUE: Busybox binary has incorrect permissions: $busybox_perms")
+        fi
+        
+        # Check if busybox is owned by root
+        local busybox_owner=$(stat -c "%U" "$BUSYBOX_PATH" 2>/dev/null || echo "unknown")
+        if [[ "$busybox_owner" != "root" ]]; then
+            issues+=("ISSUE: Busybox binary not owned by root: $busybox_owner")
+        fi
+    fi
+    
+    printf '%s\n' "${issues[@]}"
+}
+
+# Audit all containers security
+audit_all_containers_security() {
+    local issues=()
+    
+    if [[ ! -d "$CONTAINERS_DIR" ]]; then
+        return 0
+    fi
+    
+    for container_dir in "$CONTAINERS_DIR"/*; do
+        if [[ -d "$container_dir" && "$(basename "$container_dir")" != "busybox" ]]; then
+            local container_name=$(basename "$container_dir")
+            local container_issues=($(audit_container_security "$container_name"))
+            issues+=("${container_issues[@]}")
+        fi
+    done
+    
+    printf '%s\n' "${issues[@]}"
+}
+
+# Audit specific container security
+audit_container_security() {
+    local container_name=$1
+    local container_dir="$CONTAINERS_DIR/$container_name"
+    local issues=()
+    
+    if [[ ! -d "$container_dir" ]]; then
+        issues+=("ISSUE: Container directory does not exist: $container_name")
+        printf '%s\n' "${issues[@]}"
+        return 0
+    fi
+    
+    # Check container directory permissions
+    local dir_perms=$(stat -c "%a" "$container_dir" 2>/dev/null || echo "000")
+    if [[ "$dir_perms" != "755" && "$dir_perms" != "700" ]]; then
+        issues+=("ISSUE: Container $container_name directory has insecure permissions: $dir_perms")
+    fi
+    
+    # Check config file security
+    local config_file="$container_dir/config.json"
+    if [[ -f "$config_file" ]]; then
+        local config_perms=$(stat -c "%a" "$config_file" 2>/dev/null || echo "000")
+        if [[ "$config_perms" != "644" && "$config_perms" != "600" ]]; then
+            issues+=("ISSUE: Container $container_name config file has insecure permissions: $config_perms")
+        fi
+    fi
+    
+    # Check for isolation if container is running
+    if container_is_running "$container_name"; then
+        if ! verify_container_isolation "$container_name" 2>/dev/null; then
+            issues+=("ISSUE: Container $container_name isolation verification failed")
+        fi
+    fi
+    
+    # Check for orphaned resources
+    local memory_cgroup="$CGROUP_ROOT/memory/container-$container_name"
+    local cpu_cgroup="$CGROUP_ROOT/cpu/container-$container_name"
+    
+    if [[ -d "$memory_cgroup" || -d "$cpu_cgroup" ]] && ! container_is_running "$container_name"; then
+        issues+=("ISSUE: Container $container_name has orphaned cgroups")
+    fi
+    
+    if ip netns list 2>/dev/null | grep -q "container-$container_name" && ! container_is_running "$container_name"; then
+        issues+=("ISSUE: Container $container_name has orphaned network namespace")
+    fi
+    
+    printf '%s\n' "${issues[@]}"
+}
+
+# Security command handler
+cmd_security_audit() {
+    local scope=${1:-"all"}
+    local container_name=${2:-""}
+    
+    log_info "Starting security audit..." \
+             "Seperti RT memulai inspeksi keamanan kompleks"
+    
+    init_error_handling
+    set_operation_context "security_audit" "$scope"
+    
+    if ! perform_security_audit "$scope" "$container_name"; then
+        log_error "Security audit failed" \
+                  "Audit keamanan gagal"
+        clear_operation_context "security_audit"
+        return 1
+    fi
+    
+    clear_operation_context "security_audit"
+    log_success "Security audit completed" \
+                "Audit keamanan selesai"
+    
+    return 0
+}
+
+# =============================================================================
 # INPUT VALIDATION AND ERROR HANDLING UTILITIES
 # =============================================================================
 
-# Validate container name
+# Validate container name with enhanced security
 validate_container_name() {
     local name=$1
     
     if [[ -z "$name" ]]; then
         log_error "Container name cannot be empty" "Seperti rumah harus punya nama/nomor untuk identifikasi RT"
+        return 1
+    fi
+    
+    # Sanitize input first
+    local sanitized_name=$(sanitize_container_name "$name")
+    
+    # Check if sanitization changed the input (potential security issue)
+    if [[ "$name" != "$sanitized_name" ]]; then
+        log_error "Container name contains invalid characters (sanitized: '$sanitized_name')" \
+                  "Nama rumah mengandung karakter tidak valid"
         return 1
     fi
     
@@ -793,12 +1340,32 @@ validate_container_name() {
         return 1
     fi
     
+    # Additional security checks
+    local forbidden_names=("root" "admin" "system" "kernel" "init" "proc" "sys" "dev" "tmp" "var" "etc" "bin" "sbin" "usr" "lib" "lib64")
+    for forbidden in "${forbidden_names[@]}"; do
+        if [[ "$name" == "$forbidden" ]]; then
+            log_error "Container name '$name' is reserved and cannot be used" \
+                      "Nama rumah '$name' adalah nama khusus yang tidak boleh digunakan"
+            return 1
+        fi
+    done
+    
     return 0
 }
 
-# Validate memory limit
+# Validate memory limit with sanitization
 validate_memory_limit() {
     local memory_mb=$1
+    
+    # Sanitize numeric input first
+    local sanitized_memory=$(sanitize_numeric_input "$memory_mb" 8192)
+    
+    # Check if sanitization changed the input
+    if [[ "$memory_mb" != "$sanitized_memory" ]]; then
+        log_error "Memory limit contains invalid characters (sanitized: '$sanitized_memory')" \
+                  "Batas memori mengandung karakter tidak valid"
+        return 1
+    fi
     
     if [[ ! "$memory_mb" =~ ^[0-9]+$ ]]; then
         log_error "Memory limit must be a positive integer (MB)" "Seperti pembatasan listrik rumah harus berupa angka yang jelas"
@@ -818,9 +1385,19 @@ validate_memory_limit() {
     return 0
 }
 
-# Validate CPU percentage
+# Validate CPU percentage with sanitization
 validate_cpu_percentage() {
     local cpu_percent=$1
+    
+    # Sanitize numeric input first
+    local sanitized_cpu=$(sanitize_numeric_input "$cpu_percent" 100)
+    
+    # Check if sanitization changed the input
+    if [[ "$cpu_percent" != "$sanitized_cpu" ]]; then
+        log_error "CPU percentage contains invalid characters (sanitized: '$sanitized_cpu')" \
+                  "Persentase CPU mengandung karakter tidak valid"
+        return 1
+    fi
     
     if [[ ! "$cpu_percent" =~ ^[0-9]+$ ]]; then
         log_error "CPU percentage must be a positive integer" "Seperti pembagian waktu kerja harus berupa persentase yang jelas"
@@ -840,7 +1417,7 @@ validate_cpu_percentage() {
     return 0
 }
 
-# Check if running as root or with sufficient privileges
+# Check if running as root or with sufficient privileges (legacy function)
 check_privileges() {
     if [[ $EUID -ne 0 ]]; then
         log_error "This script requires root privileges for namespace and cgroup operations" \
@@ -848,6 +1425,9 @@ check_privileges() {
         log_info "Please run with: sudo $0 $*"
         exit 1
     fi
+    
+    # Perform enhanced privilege checking for critical operations
+    check_enhanced_privileges "general" || exit 1
 }
 
 # Check if required commands are available
@@ -5814,7 +6394,14 @@ cmd_create_container() {
     log_info "Pak RT sedang memproses permintaan pembuatan rumah baru..." \
              "Seperti RT yang menerima pendaftaran warga baru untuk menempati rumah"
     
-    # Parse and validate arguments
+    # Enhanced security checks for container creation
+    if ! check_enhanced_privileges "namespace_operations"; then
+        log_error "Insufficient privileges for container creation" \
+                  "Wewenang tidak cukup untuk membuat rumah baru"
+        return 1
+    fi
+    
+    # Parse and validate arguments with security sanitization
     if ! parse_create_container_args "${args[@]}"; then
         return 1
     fi
@@ -5884,6 +6471,15 @@ cmd_create_container() {
     
     # Save container metadata
     save_container_metadata "$container_name" "$memory_mb" "$cpu_percent"
+    
+    # Verify container isolation after creation
+    log_info "Verifying container security and isolation..." \
+             "Seperti RT memeriksa keamanan dan isolasi rumah yang baru dibuat"
+    
+    if ! verify_container_isolation "$container_name" 2>/dev/null; then
+        log_warn "Container isolation verification failed, but container was created" \
+                 "Verifikasi isolasi gagal, tapi rumah sudah berhasil dibuat"
+    fi
     
     log_success "Container '$container_name' created successfully!" \
                 "Rumah '$container_name' berhasil didaftarkan dan siap ditempati warga"
@@ -6233,7 +6829,15 @@ save_container_metadata() {
     local config_file="$CONTAINERS_DIR/$container_name/config.json"
     local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     
-    cat > "$config_file" << EOF
+    # Use secure temporary file for atomic write
+    local temp_config=$(create_secure_temp_file "container_config" ".json")
+    if [[ -z "$temp_config" ]]; then
+        log_error "Failed to create secure temporary file for container metadata" \
+                  "Gagal membuat file sementara yang aman untuk data rumah"
+        return 1
+    fi
+    
+    cat > "$temp_config" << EOF
 {
   "name": "$container_name",
   "created": "$timestamp",
@@ -6263,8 +6867,18 @@ save_container_metadata() {
 }
 EOF
     
-    log_debug "Container metadata saved to: $config_file" \
-              "Data rumah disimpan dalam arsip RT"
+    # Atomically move temp file to final location
+    if mv "$temp_config" "$config_file"; then
+        # Set secure permissions on config file
+        chmod 644 "$config_file"
+        log_debug "Container metadata saved securely to: $config_file" \
+                  "Data rumah disimpan dengan aman dalam arsip RT"
+    else
+        log_error "Failed to save container metadata" \
+                  "Gagal menyimpan data rumah dalam arsip RT"
+        rm -f "$temp_config" 2>/dev/null || true
+        return 1
+    fi
 }
 
 # Start container process with all namespaces and limits
@@ -6277,9 +6891,16 @@ start_container_process() {
     log_info "Starting container process for: $container_name" \
              "Memulai aktivitas penghuni rumah: $container_name"
     
-    # Create startup script for the container
+    # Create startup script for the container using secure temporary file
     local startup_script="$CONTAINERS_DIR/$container_name/startup.sh"
-    cat > "$startup_script" << EOF
+    local temp_startup=$(create_secure_temp_file "container_startup" ".sh")
+    if [[ -z "$temp_startup" ]]; then
+        log_error "Failed to create secure temporary file for startup script" \
+                  "Gagal membuat file sementara yang aman untuk skrip startup"
+        return 1
+    fi
+    
+    cat > "$temp_startup" << EOF
 #!/bin/bash
 set -e
 
@@ -6304,7 +6925,17 @@ cd /
 exec $command_to_run
 EOF
     
-    chmod +x "$startup_script"
+    # Atomically move temp file to final location
+    if mv "$temp_startup" "$startup_script"; then
+        chmod +x "$startup_script"
+        log_debug "Startup script created securely: $startup_script" \
+                  "Skrip startup dibuat dengan aman"
+    else
+        log_error "Failed to create startup script" \
+                  "Gagal membuat skrip startup"
+        rm -f "$temp_startup" 2>/dev/null || true
+        return 1
+    fi
     
     # Start container with all namespaces
     log_info "Launching container with full isolation..." \
@@ -6555,6 +7186,9 @@ ERROR HANDLING & RECOVERY COMMANDS:
     validate-system                 Comprehensive system health check
     emergency-cleanup               Force cleanup all resources (destructive)
 
+SECURITY COMMANDS:
+    security-audit [scope] [container]  Perform security audit (scope: all|system|container)
+
 NETWORK COMMANDS (Task 6 Implementation):
     test-network                    Test network functionality
     create-test-network [name1] [name2]  Create test network with 2 containers
@@ -6579,6 +7213,11 @@ EXAMPLES:
     $0 recover-state
     $0 recover-state webapp
     $0 emergency-cleanup
+
+    # Security audit
+    $0 security-audit
+    $0 security-audit system
+    $0 security-audit container webapp
 
     # Network testing
     $0 test-network
@@ -6637,7 +7276,7 @@ main() {
     
     # Check dependencies and privileges for commands that need them
     case "$command" in
-        create-container|run-container|delete-container|cleanup-all|test-network|create-test-network|cleanup-test-network|show-network|test-connectivity|monitor-network|debug-network|list-networks|monitor|show-topology|debug|recover-state|validate-system|emergency-cleanup)
+        create-container|run-container|delete-container|cleanup-all|test-network|create-test-network|cleanup-test-network|show-network|test-connectivity|monitor-network|debug-network|list-networks|monitor|show-topology|debug|recover-state|validate-system|emergency-cleanup|security-audit)
             check_dependencies
             check_privileges
             ;;
@@ -6743,6 +7382,11 @@ main() {
             ;;
         "emergency-cleanup")
             cmd_emergency_cleanup
+            ;;
+        "security-audit")
+            local scope=${2:-"all"}
+            local container_name=${3:-""}
+            cmd_security_audit "$scope" "$container_name"
             ;;
         "help"|"--help"|"-h")
             local topic=${2:-""}
