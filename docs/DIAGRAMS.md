@@ -15,16 +15,16 @@ Jadi satu "rumah" (container) memiliki berbagai "fasilitas" (namespaces) seperti
 
 ```mermaid
 graph TB
-    subgraph "🏘️ Kompleks Perumahan Linux Kernel"
-        RT[🏢 Kantor RT - Container Runtime]
-        RW[🏛️ Kantor RW - Host Network]
-        Satpam[🚪 Pos Satpam - Network Gateway]
-        Listrik[💡 Gardu Listrik - Resource Manager]
+    subgraph "🏘️ Kompleks Perumahan"
+        RT[🏢 Kantor RT<br/>Container Runtime]
+        RW[🏛️ Kantor RW<br/>Host Network]
+        Satpam[🚪 Pos Satpam<br/>Network Gateway]
+        Listrik[💡 Gardu Listrik<br/>Resource Manager]
         
-        subgraph "Rumah-rumah (Namespaces)"
-            RumahA[🏠 Rumah Jakarta - Namespace A - 10.0.0.2]
-            RumahB[🏠 Rumah Bandung - Namespace B - 10.0.0.3]
-            RumahC[🏠 Rumah Surabaya - Namespace C - 10.0.0.4]
+        subgraph "Rumah-rumah"
+            RumahA[🏠 Rumah Jakarta<br/>Namespace A<br/>10.0.0.2]
+            RumahB[🏠 Rumah Bandung<br/>Namespace B<br/>10.0.0.3]
+            RumahC[🏠 Rumah Surabaya<br/>Namespace C<br/>10.0.0.4]
         end
         
         RT --> RumahA
@@ -57,12 +57,12 @@ graph TB
 
 ```mermaid
 graph TD
-    subgraph "🏠 Rumah Jakarta (PID Namespace)"
-        Ayah[👨 Ayah PID 1 - busybox init - Kepala Keluarga]
-        Ibu[👩 Ibu PID 2 - /bin/sh - Pengelola Rumah]
-        Kakak[👦 Kakak PID 3 - web server - Anak Pertama]
-        Adik[👧 Adik PID 4 - log process - Anak Kedua]
-        Anjing[🐕 Anjing PID 5 - monitoring daemon - Peliharaan]
+    subgraph "🏠 Rumah Jakarta"
+        Ayah[👨 Ayah PID 1<br/>busybox init<br/>Kepala Keluarga]
+        Ibu[👩 Ibu PID 2<br/>/bin/sh<br/>Pengelola Rumah]
+        Kakak[👦 Kakak PID 3<br/>web server<br/>Anak Pertama]
+        Adik[👧 Adik PID 4<br/>log process<br/>Anak Kedua]
+        Anjing[🐕 Anjing PID 5<br/>monitoring daemon<br/>Peliharaan]
         
         Ayah --> Ibu
         Ayah --> Kakak
@@ -73,17 +73,17 @@ graph TD
         Ibu --> Adik
     end
     
-    subgraph "🏠 Rumah Bandung (PID Namespace)"
-        Ayah2[👨 Ayah PID 1 - busybox init - Kepala Keluarga]
-        Ibu2[👩 Ibu PID 2 - /bin/sh - Pengelola Rumah]
-        Anak2[👧 Anak PID 3 - database - Anak Tunggal]
+    subgraph "🏠 Rumah Bandung"
+        Ayah2[👨 Ayah PID 1<br/>busybox init<br/>Kepala Keluarga]
+        Ibu2[👩 Ibu PID 2<br/>/bin/sh<br/>Pengelola Rumah]
+        Anak2[👧 Anak PID 3<br/>database<br/>Anak Tunggal]
         
         Ayah2 --> Ibu2
         Ayah2 --> Anak2
         Ibu2 --> Anak2
     end
     
-    Note[📝 Catatan: Setiap rumah punya penomoran sendiri, Ayah PID 1 selalu nomor 1, Jika Ayah pergi keluarga pindah]
+    Note[📝 Catatan:<br/>Setiap rumah punya penomoran sendiri<br/>Ayah PID 1 selalu nomor 1<br/>Jika Ayah pergi keluarga pindah]
     
     style Ayah fill:#ffcdd2
     style Ayah2 fill:#ffcdd2
@@ -97,24 +97,24 @@ graph TD
 ```mermaid
 graph LR
     subgraph "🏠 Rumah Jakarta"
-        subgraph "Fasilitas Isolasi"
-            PID[🔢 PID Namespace - Sistem Penomoran Keluarga - PID 1,2,3]
-            NET[📞 Network Namespace - Telepon Rumah - 10.0.0.2/24]
-            MNT[📚 Mount Namespace - Rak Buku & Lemari - /home,/var,/tmp]
-            UTS[🏠 UTS Namespace - Nama Rumah - hostname jakarta]
-            IPC[📝 IPC Namespace - Papan Tulis Keluarga - Message Queue]
-            USER[👤 User Namespace - Identitas Keluarga - UID/GID mapping]
+        subgraph "Fasilitas"
+            PID[🔢 PID Namespace<br/>Sistem Penomoran Keluarga<br/>PID 1,2,3]
+            NET[📞 Network Namespace<br/>Telepon Rumah<br/>10.0.0.2/24]
+            MNT[📚 Mount Namespace<br/>Rak Buku & Lemari<br/>/home,/var,/tmp]
+            UTS[🏠 UTS Namespace<br/>Nama Rumah<br/>hostname jakarta]
+            IPC[📝 IPC Namespace<br/>Papan Tulis Keluarga<br/>Message Queue]
+            USER[👤 User Namespace<br/>Identitas Keluarga<br/>UID/GID mapping]
         end
     end
     
     subgraph "🏠 Rumah Bandung"
-        subgraph "Fasilitas Isolasi"
-            PID2[🔢 PID Namespace - Sistem Penomoran Keluarga - PID 1,2,3]
-            NET2[📞 Network Namespace - Telepon Rumah - 10.0.0.3/24]
-            MNT2[📚 Mount Namespace - Rak Buku & Lemari - /home,/var,/tmp]
-            UTS2[🏠 UTS Namespace - Nama Rumah - hostname bandung]
-            IPC2[📝 IPC Namespace - Papan Tulis Keluarga - Message Queue]
-            USER2[👤 User Namespace - Identitas Keluarga - UID/GID mapping]
+        subgraph "Fasilitas"
+            PID2[🔢 PID Namespace<br/>Sistem Penomoran Keluarga<br/>PID 1,2,3]
+            NET2[📞 Network Namespace<br/>Telepon Rumah<br/>10.0.0.3/24]
+            MNT2[📚 Mount Namespace<br/>Rak Buku & Lemari<br/>/home,/var,/tmp]
+            UTS2[🏠 UTS Namespace<br/>Nama Rumah<br/>hostname bandung]
+            IPC2[📝 IPC Namespace<br/>Papan Tulis Keluarga<br/>Message Queue]
+            USER2[👤 User Namespace<br/>Identitas Keluarga<br/>UID/GID mapping]
         end
     end
     
@@ -137,21 +137,21 @@ graph LR
 
 ```mermaid
 graph TD
-    subgraph "💡 Gardu Listrik Kompleks (Cgroup Manager)"
-        Monitor[📊 Meteran Digital - Resource Monitor]
+    subgraph "💡 Gardu Listrik Kompleks"
+        Monitor[📊 Meteran Digital<br/>Resource Monitor]
         
-        subgraph "Pembagian Utilitas"
-            MemCtrl[🧠 Memory Controller - Kuota RAM]
-            CPUCtrl[⚡ CPU Controller - Kuota Processor]
-            IOCtrl[💾 I/O Controller - Kuota Disk]
-            NetCtrl[📡 Network Controller - Kuota Bandwidth]
+        subgraph "Utilitas"
+            MemCtrl[🧠 Memory Controller<br/>Kuota RAM]
+            CPUCtrl[⚡ CPU Controller<br/>Kuota Processor]
+            IOCtrl[💾 I/O Controller<br/>Kuota Disk]
+            NetCtrl[📡 Network Controller<br/>Kuota Bandwidth]
         end
     end
     
-    subgraph "Alokasi per Rumah"
-        RumahA_Res[🏠 Rumah Jakarta - 512MB RAM, 50% CPU, 100MB/s I/O]
-        RumahB_Res[🏠 Rumah Bandung - 256MB RAM, 25% CPU, 50MB/s I/O]
-        RumahC_Res[🏠 Rumah Surabaya - 1GB RAM, 75% CPU, 200MB/s I/O]
+    subgraph "Alokasi Rumah"
+        RumahA_Res[🏠 Rumah Jakarta<br/>512MB RAM, 50% CPU<br/>100MB/s I/O]
+        RumahB_Res[🏠 Rumah Bandung<br/>256MB RAM, 25% CPU<br/>50MB/s I/O]
+        RumahC_Res[🏠 Rumah Surabaya<br/>1GB RAM, 75% CPU<br/>200MB/s I/O]
     end
     
     Monitor --> MemCtrl
@@ -171,8 +171,8 @@ graph TD
     IOCtrl --> RumahB_Res
     IOCtrl --> RumahC_Res
     
-    subgraph "Status Pemakaian"
-        Status[📈 Real-time Usage - Jakarta 128MB/512MB, Bandung 64MB/256MB, Surabaya 512MB/1GB]
+    subgraph "Status Usage"
+        Status[📈 Real-time Usage<br/>Jakarta: 128MB/512MB 25%<br/>Bandung: 64MB/256MB 25%<br/>Surabaya: 512MB/1GB 50%]
     end
     
     Monitor --> Status
@@ -189,40 +189,40 @@ graph TD
 
 ```mermaid
 graph TB
-    subgraph "🏘️ Sistem Telepon Kompleks"
-        subgraph "🏠 Rumah Jakarta (10.0.0.2)"
-            TelJkt[📞 veth-jakarta - Interface dalam rumah]
+    subgraph "🏘️ Sistem Telepon"
+        subgraph "🏠 Jakarta"
+            TelJkt[📞 veth-jakarta<br/>Interface dalam rumah]
         end
         
-        subgraph "🏠 Rumah Bandung (10.0.0.3)"
-            TelBdg[📞 veth-bandung - Interface dalam rumah]
+        subgraph "🏠 Bandung"
+            TelBdg[📞 veth-bandung<br/>Interface dalam rumah]
         end
         
-        subgraph "🏠 Rumah Surabaya (10.0.0.4)"
-            TelSby[📞 veth-surabaya - Interface dalam rumah]
+        subgraph "🏠 Surabaya"
+            TelSby[📞 veth-surabaya<br/>Interface dalam rumah]
         end
         
-        subgraph "🏢 Kantor RT (Bridge/Switch)"
-            Switch[🔌 Network Bridge - docker0 / rt-bridge]
+        subgraph "🏢 Kantor RT"
+            Switch[🔌 Network Bridge<br/>docker0 / rt-bridge]
             HostJkt[📞 veth-jakarta-host]
             HostBdg[📞 veth-bandung-host]
             HostSby[📞 veth-surabaya-host]
         end
         
-        subgraph "🏛️ Kantor RW (Host Network)"
-            HostNet[🌐 Host Interface - eth0]
+        subgraph "🏛️ Kantor RW"
+            HostNet[🌐 Host Interface<br/>eth0]
         end
         
-        subgraph "🚪 Pos Satpam (Gateway)"
-            Gateway[🚪 Network Gateway - NAT/Routing]
+        subgraph "🚪 Pos Satpam"
+            Gateway[🚪 Network Gateway<br/>NAT/Routing]
         end
     end
     
     Internet[🌐 Internet]
     
-    TelJkt -.->|Kabel Telepon veth pair| HostJkt
-    TelBdg -.->|Kabel Telepon veth pair| HostBdg
-    TelSby -.->|Kabel Telepon veth pair| HostSby
+    TelJkt -.->|Kabel Telepon<br/>veth pair| HostJkt
+    TelBdg -.->|Kabel Telepon<br/>veth pair| HostBdg
+    TelSby -.->|Kabel Telepon<br/>veth pair| HostSby
     
     HostJkt --> Switch
     HostBdg --> Switch
@@ -232,9 +232,9 @@ graph TB
     HostNet --> Gateway
     Gateway <--> Internet
     
-    TelJkt <-.->|Direct Call 10.0.0.2 to 10.0.0.3| TelBdg
-    TelBdg <-.->|Direct Call 10.0.0.3 to 10.0.0.4| TelSby
-    TelSby <-.->|Direct Call 10.0.0.4 to 10.0.0.2| TelJkt
+    TelJkt <-.->|Direct Call<br/>10.0.0.2 → 10.0.0.3| TelBdg
+    TelBdg <-.->|Direct Call<br/>10.0.0.3 → 10.0.0.4| TelSby
+    TelSby <-.->|Direct Call<br/>10.0.0.4 → 10.0.0.2| TelJkt
     
     style Switch fill:#e3f2fd
     style HostNet fill:#f3e5f5
