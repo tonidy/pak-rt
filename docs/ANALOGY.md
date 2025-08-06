@@ -18,7 +18,7 @@ RT Container Runtime menggunakan analogi sistem Rukun Tetangga (RT) di Indonesia
 ├── 🏠 Rumah C (Container C)
 ├── 🏛️ Kantor RW (Host Network)
 ├── 💡 Gardu Listrik (Resource Manager)
-└── 🌐 Gerbang Internet (Network Gateway)
+└── 🚪 Pos Satpam Kompleks (Network Gateway)
 ```
 
 **Penjelasan:**
@@ -27,6 +27,7 @@ RT Container Runtime menggunakan analogi sistem Rukun Tetangga (RT) di Indonesia
 - **Setiap rumah** adalah container individual dengan penghuni dan fasilitas sendiri
 - **Kantor RW** mengelola komunikasi dengan dunia luar (host network)
 - **Gardu listrik** mengatur pembagian resource (CPU, memory)
+- **Pos Satpam** mengontrol akses keluar-masuk kompleks (network gateway)
 
 ## 👨‍👩‍👧‍👦 Struktur Keluarga dalam Container
 
@@ -38,7 +39,7 @@ RT Container Runtime menggunakan analogi sistem Rukun Tetangga (RT) di Indonesia
 ├── 👩 Ibu (PID 2 - shell process)
 ├── 👦 Kakak (PID 3 - web server)
 ├── 👧 Adik (PID 4 - log process)
-└── 🐕 Anjing (PID 5 - monitoring daemon)
+└── 🐈 Kucing (PID 5 - monitoring daemon)
 ```
 
 **Penjelasan:**
