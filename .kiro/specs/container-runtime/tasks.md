@@ -56,7 +56,7 @@
   - Create container deletion dengan comprehensive cleanup
   - _Requirements: 5.1, 5.4_
 
-- [ ] 8. Implement CLI interface dan command handlers
+- [x] 8. Implement CLI interface dan command handlers
   - Create main CLI parser dengan command routing
   - Implement create-container command dengan parameter validation
   - Create list-containers command dengan status display dan analogi
@@ -81,7 +81,7 @@
   - Create recovery procedures untuk corrupted state
   - _Requirements: 1.4, 2.5, 3.5_
 
-- [ ] 11. Create testing framework dan validation dengan Docker Compose
+- [ ] 11. Create testing framework dan validation dengan Docker Compose (tidak perlu ditest, akan dilakukan manual)
   - Write unit tests untuk setiap major function yang bisa dijalankan dengan `make test-unit`
   - Create integration tests untuk complete container lifecycle dengan `make test-integration`
   - Implement network connectivity tests antar containers dalam Docker environment

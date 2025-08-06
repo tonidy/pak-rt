@@ -1,10 +1,10 @@
 #!/bin/bash
-# Pak RT Container Runtime - Integration Tests
+# RT Container Runtime - Integration Tests
 # Tests complete workflows dan system integration
 
 set -e
 
-echo "🔗 Running Integration Tests untuk Pak RT Container Runtime"
+echo "🔗 Running Integration Tests untuk RT Container Runtime"
 echo "=========================================================="
 
 # Test configuration

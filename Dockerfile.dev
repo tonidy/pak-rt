@@ -1,4 +1,4 @@
-# Pak RT Container Runtime - Development Environment
+# RT Container Runtime - Development Environment
 # Ubuntu-based container dengan Linux tools untuk namespace dan cgroup operations
 
 FROM ubuntu:22.04
@@ -67,6 +67,6 @@ USER root
 CMD ["/bin/bash"]
 
 # Labels untuk identification
-LABEL maintainer="Pak RT Development Team"
-LABEL description="Development environment untuk Pak RT Container Runtime"
+LABEL maintainer="RT Development Team"
+LABEL description="Development environment untuk RT Container Runtime"
 LABEL version="1.0"

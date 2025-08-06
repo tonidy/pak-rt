@@ -1,10 +1,10 @@
-# Pak RT Container Runtime
+# RT Container Runtime
 
 Bash script container runtime yang mengimplementasikan container technology fundamentals menggunakan Linux namespaces dan cgroups.
 
 ## Overview
 
-Pak RT (Rukun Tetangga) adalah educational container runtime yang dibuat untuk memahami bagaimana container bekerja di level sistem operasi. Script ini menggunakan analogi perumahan RT untuk menjelaskan konsep-konsep container technology.
+RT (Rukun Tetangga) adalah educational container runtime yang dibuat untuk memahami bagaimana container bekerja di level sistem operasi. Script ini menggunakan analogi RT di dalam perumahan untuk menjelaskan konsep-konsep container technology.
 
 ## Features
 
@@ -80,7 +80,7 @@ pak-rt/
 
 ## Educational Analogy
 
-Pak RT menggunakan analogi perumahan untuk menjelaskan container concepts:
+RT menggunakan analogi perumahan untuk menjelaskan konsep container di Linux:
 
 - 🏘️ **Host System** = Kompleks Perumahan
 - 🏠 **Container** = Rumah Individual

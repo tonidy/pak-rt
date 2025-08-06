@@ -48,6 +48,75 @@ readonly LOG_DEBUG=4
 LOG_LEVEL=${LOG_LEVEL:-3}
 
 # =============================================================================
+# CLI INTERFACE AND COMMAND PARSING
+# =============================================================================
+
+# Parse command line arguments for create-container command
+parse_create_container_args() {
+    local container_name=""
+    local memory_mb="$DEFAULT_MEMORY_MB"
+    local cpu_percent="$DEFAULT_CPU_PERCENT"
+    
+    # First argument should be container name
+    if [[ -n "$1" && ! "$1" =~ ^-- ]]; then
+        container_name="$1"
+        shift
+    fi
+    
+    # Parse optional parameters
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --ram=*)
+                memory_mb="${1#*=}"
+                shift
+                ;;
+            --cpu=*)
+                cpu_percent="${1#*=}"
+                shift
+                ;;
+            --memory=*)
+                memory_mb="${1#*=}"
+                shift
+                ;;
+            *)
+                log_error "Unknown parameter: $1" "Seperti RT menerima permintaan yang tidak dimengerti"
+                return 1
+                ;;
+        esac
+    done
+    
+    # Export parsed values for use by calling function
+    export PARSED_CONTAINER_NAME="$container_name"
+    export PARSED_MEMORY_MB="$memory_mb"
+    export PARSED_CPU_PERCENT="$cpu_percent"
+    
+    return 0
+}
+
+# Validate parsed arguments
+validate_create_container_args() {
+    if [[ -z "$PARSED_CONTAINER_NAME" ]]; then
+        log_error "Container name is required" "Seperti rumah harus punya nama untuk didaftarkan RT"
+        echo "Usage: $0 create-container <name> [--ram=MB] [--cpu=PERCENT]"
+        return 1
+    fi
+    
+    if ! validate_container_name "$PARSED_CONTAINER_NAME"; then
+        return 1
+    fi
+    
+    if ! validate_memory_limit "$PARSED_MEMORY_MB"; then
+        return 1
+    fi
+    
+    if ! validate_cpu_percentage "$PARSED_CPU_PERCENT"; then
+        return 1
+    fi
+    
+    return 0
+}
+
+# =============================================================================
 # UTILITY FUNCTIONS - LOGGING WITH RT ANALOGY
 # =============================================================================
 
@@ -654,7 +723,34 @@ get_busybox_info() {
 # =============================================================================
 
 # Global namespace tracking for cleanup
-declare -A ACTIVE_NAMESPACES
+# Using regular arrays for compatibility
+ACTIVE_NAMESPACES=()
+
+# Helper functions for array management (compatibility with older bash)
+set_container_namespace() {
+    local container_name=$1
+    local namespaces=$2
+    # Remove existing entry if present
+    ACTIVE_NAMESPACES=($(printf '%s\n' "${ACTIVE_NAMESPACES[@]}" | grep -v "^$container_name:" || true))
+    # Add new entry
+    ACTIVE_NAMESPACES+=("$container_name:$namespaces")
+}
+
+get_container_namespace() {
+    local container_name=$1
+    for entry in "${ACTIVE_NAMESPACES[@]}"; do
+        if [[ "$entry" =~ ^$container_name: ]]; then
+            echo "${entry#*:}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+unset_container_namespace() {
+    local container_name=$1
+    ACTIVE_NAMESPACES=($(printf '%s\n' "${ACTIVE_NAMESPACES[@]}" | grep -v "^$container_name:" || true))
+}
 
 # Create PID namespace with "Ayah nomor 1 di rumah" analogy
 create_pid_namespace() {
@@ -900,7 +996,7 @@ setup_container_namespaces() {
     fi
     
     # Mark namespaces as active for cleanup tracking
-    ACTIVE_NAMESPACES["$container_name"]="pid,mount,uts,ipc,user"
+    set_container_namespace "$container_name" "pid,mount,uts,ipc,user"
     
     log_success "All namespaces configured for container: $container_name" \
                 "Semua sistem rumah siap - penomoran keluarga, rak buku, nama rumah, papan tulis, dan keanggotaan"
@@ -913,9 +1009,71 @@ setup_container_namespaces() {
 # =============================================================================
 
 # Global network tracking for cleanup
-declare -A ACTIVE_NETWORKS
-declare -A CONTAINER_IPS
-declare -g NEXT_IP_OCTET=2
+# Using regular arrays for compatibility
+ACTIVE_NETWORKS=()
+CONTAINER_IPS=()
+NEXT_IP_OCTET=2
+
+# Helper functions for network array management
+set_container_network() {
+    local container_name=$1
+    local network_info=$2
+    # Remove existing entry if present
+    ACTIVE_NETWORKS=($(printf '%s\n' "${ACTIVE_NETWORKS[@]}" | grep -v "^$container_name:" || true))
+    # Add new entry
+    ACTIVE_NETWORKS+=("$container_name:$network_info")
+}
+
+get_container_network() {
+    local container_name=$1
+    for entry in "${ACTIVE_NETWORKS[@]}"; do
+        if [[ "$entry" =~ ^$container_name: ]]; then
+            echo "${entry#*:}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+unset_container_network() {
+    local container_name=$1
+    ACTIVE_NETWORKS=($(printf '%s\n' "${ACTIVE_NETWORKS[@]}" | grep -v "^$container_name:" || true))
+}
+
+set_container_ip() {
+    local container_name=$1
+    local ip=$2
+    # Remove existing entry if present
+    CONTAINER_IPS=($(printf '%s\n' "${CONTAINER_IPS[@]}" | grep -v "^$container_name:" || true))
+    # Add new entry
+    CONTAINER_IPS+=("$container_name:$ip")
+}
+
+get_container_ip() {
+    local container_name=$1
+    for entry in "${CONTAINER_IPS[@]}"; do
+        if [[ "$entry" =~ ^$container_name: ]]; then
+            echo "${entry#*:}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+unset_container_ip() {
+    local container_name=$1
+    CONTAINER_IPS=($(printf '%s\n' "${CONTAINER_IPS[@]}" | grep -v "^$container_name:" || true))
+}
+
+is_ip_in_use() {
+    local ip=$1
+    for entry in "${CONTAINER_IPS[@]}"; do
+        if [[ "$entry" =~ :$ip$ ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
 
 # Get next available IP address in the container network
 get_next_container_ip() {
@@ -923,7 +1081,7 @@ get_next_container_ip() {
     local octet=$NEXT_IP_OCTET
     
     # Check if IP is already in use
-    while [[ -n "${CONTAINER_IPS["$base_ip.$octet"]:-}" ]]; do
+    while is_ip_in_use "$base_ip.$octet"; do
         ((octet++))
         if [[ $octet -gt 254 ]]; then
             log_error "No available IP addresses in container network" \
@@ -1124,7 +1282,7 @@ create_container() {
     fi
     
     # Reserve IP address
-    CONTAINER_IPS["$container_ip"]="$container_name"
+    set_container_ip "$container_name" "$container_ip"
     
     # Setup busybox for the container
     log_info "Setting up busybox for container" \
@@ -2180,7 +2338,34 @@ debug_container_network() {
 # =============================================================================
 
 # Global cgroup tracking for cleanup
-declare -A ACTIVE_CGROUPS
+# Using regular arrays for compatibility
+ACTIVE_CGROUPS=()
+
+# Helper functions for cgroup array management
+set_container_cgroup() {
+    local container_name=$1
+    local cgroup_info=$2
+    # Remove existing entry if present
+    ACTIVE_CGROUPS=($(printf '%s\n' "${ACTIVE_CGROUPS[@]}" | grep -v "^$container_name:" || true))
+    # Add new entry
+    ACTIVE_CGROUPS+=("$container_name:$cgroup_info")
+}
+
+get_container_cgroup() {
+    local container_name=$1
+    for entry in "${ACTIVE_CGROUPS[@]}"; do
+        if [[ "$entry" =~ ^$container_name: ]]; then
+            echo "${entry#*:}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+unset_container_cgroup() {
+    local container_name=$1
+    ACTIVE_CGROUPS=($(printf '%s\n' "${ACTIVE_CGROUPS[@]}" | grep -v "^$container_name:" || true))
+}
 
 # Create cgroup directory structure for memory and CPU control
 create_cgroup_structure() {
@@ -3347,6 +3532,736 @@ cleanup_test_network() {
 # MAIN ENTRY POINT PLACEHOLDER
 # =============================================================================
 
+# =============================================================================
+# CLI COMMAND HANDLERS
+# =============================================================================
+
+# Create container command handler
+cmd_create_container() {
+    local args=("$@")
+    
+    log_info "Pak RT sedang memproses permintaan pembuatan rumah baru..." \
+             "Seperti RT yang menerima pendaftaran warga baru untuk menempati rumah"
+    
+    # Parse and validate arguments
+    if ! parse_create_container_args "${args[@]}"; then
+        return 1
+    fi
+    
+    if ! validate_create_container_args; then
+        return 1
+    fi
+    
+    local container_name="$PARSED_CONTAINER_NAME"
+    local memory_mb="$PARSED_MEMORY_MB"
+    local cpu_percent="$PARSED_CPU_PERCENT"
+    
+    # Check if container already exists
+    if container_exists "$container_name"; then
+        log_error "Container '$container_name' already exists" \
+                  "Seperti rumah dengan nama '$container_name' sudah terdaftar di kompleks RT"
+        return 1
+    fi
+    
+    log_info "Creating container: $container_name (RAM: ${memory_mb}MB, CPU: ${cpu_percent}%)" \
+             "Seperti RT mendaftarkan rumah '$container_name' dengan alokasi listrik ${memory_mb}MB dan waktu kerja ${cpu_percent}%"
+    
+    # Initialize busybox system if not already done
+    if ! init_busybox_system; then
+        log_error "Failed to initialize busybox system" \
+                  "Gagal menyiapkan peralatan dasar untuk kompleks"
+        return 1
+    fi
+    
+    # Create container directory structure
+    local container_dir="$CONTAINERS_DIR/$container_name"
+    create_directory "$container_dir"
+    create_directory "$container_dir/rootfs"
+    create_directory "$container_dir/logs"
+    
+    # Setup container namespaces
+    if ! setup_container_namespaces "$container_name"; then
+        log_error "Failed to setup namespaces for container: $container_name" \
+                  "Gagal menyiapkan sistem rumah untuk '$container_name'"
+        cleanup_container_resources "$container_name"
+        return 1
+    fi
+    
+    # Setup busybox for container
+    if ! setup_busybox "$container_name"; then
+        log_error "Failed to setup busybox for container: $container_name" \
+                  "Gagal menyiapkan peralatan rumah untuk '$container_name'"
+        cleanup_container_resources "$container_name"
+        return 1
+    fi
+    
+    # Create cgroups for resource management
+    if ! create_container_cgroups "$container_name" "$memory_mb" "$cpu_percent"; then
+        log_error "Failed to create cgroups for container: $container_name" \
+                  "Gagal mengatur pembatasan listrik dan air untuk rumah '$container_name'"
+        cleanup_container_resources "$container_name"
+        return 1
+    fi
+    
+    # Setup network namespace
+    if ! create_container_network "$container_name"; then
+        log_error "Failed to setup network for container: $container_name" \
+                  "Gagal menyiapkan sambungan telepon untuk rumah '$container_name'"
+        cleanup_container_resources "$container_name"
+        return 1
+    fi
+    
+    # Save container metadata
+    save_container_metadata "$container_name" "$memory_mb" "$cpu_percent"
+    
+    log_success "Container '$container_name' created successfully!" \
+                "Rumah '$container_name' berhasil didaftarkan dan siap ditempati warga"
+    
+    log_info "Next steps:" \
+             "Langkah selanjutnya untuk menempati rumah:"
+    echo "  1. Run container: $0 run-container $container_name"
+    echo "  2. List containers: $0 list-containers"
+    echo "  3. Delete container: $0 delete-container $container_name"
+    
+    return 0
+}
+
+# List containers command handler
+cmd_list_containers() {
+    log_info "Pak RT sedang memeriksa daftar semua rumah di kompleks..." \
+             "Seperti RT yang melakukan pendataan warga dan status rumah"
+    
+    if [[ ! -d "$CONTAINERS_DIR" ]]; then
+        log_info "No containers directory found" \
+                 "Belum ada kompleks perumahan yang terdaftar"
+        echo "No containers created yet."
+        echo "Use '$0 create-container <name>' to create your first container."
+        return 0
+    fi
+    
+    local containers=($(find "$CONTAINERS_DIR" -maxdepth 1 -type d -not -path "$CONTAINERS_DIR" -exec basename {} \; 2>/dev/null | sort))
+    
+    if [[ ${#containers[@]} -eq 0 ]]; then
+        log_info "No containers found" \
+                 "Kompleks perumahan masih kosong, belum ada rumah yang terdaftar"
+        echo "No containers created yet."
+        echo "Use '$0 create-container <name>' to create your first container."
+        return 0
+    fi
+    
+    echo ""
+    echo "🏘️  RT Container Runtime - Daftar Rumah Kompleks"
+    echo "=================================================="
+    printf "%-20s %-10s %-15s %-15s %-20s\n" "NAMA RUMAH" "STATUS" "RAM (MB)" "CPU (%)" "IP ADDRESS"
+    echo "--------------------------------------------------"
+    
+    for container_name in "${containers[@]}"; do
+        local status="stopped"
+        local memory_mb="N/A"
+        local cpu_percent="N/A"
+        local ip_address="N/A"
+        
+        # Check if container is running
+        if container_is_running "$container_name"; then
+            status="running"
+        elif [[ -f "$CONTAINERS_DIR/$container_name/config.json" ]]; then
+            status="created"
+        fi
+        
+        # Get container metadata
+        local config_file="$CONTAINERS_DIR/$container_name/config.json"
+        if [[ -f "$config_file" ]]; then
+            memory_mb=$(grep -o '"memory_mb":[0-9]*' "$config_file" 2>/dev/null | cut -d: -f2 || echo "N/A")
+            cpu_percent=$(grep -o '"cpu_percentage":[0-9]*' "$config_file" 2>/dev/null | cut -d: -f2 || echo "N/A")
+            ip_address=$(grep -o '"ip_address":"[^"]*"' "$config_file" 2>/dev/null | cut -d'"' -f4 || echo "N/A")
+        fi
+        
+        # Color code status
+        local status_colored
+        case "$status" in
+            "running")
+                status_colored="${COLOR_GREEN}running${COLOR_RESET}"
+                ;;
+            "created")
+                status_colored="${COLOR_YELLOW}created${COLOR_RESET}"
+                ;;
+            *)
+                status_colored="${COLOR_RED}stopped${COLOR_RESET}"
+                ;;
+        esac
+        
+        printf "%-20s %-20s %-15s %-15s %-20s\n" "$container_name" "$status_colored" "$memory_mb" "$cpu_percent" "$ip_address"
+    done
+    
+    echo ""
+    echo "📊 Summary:"
+    echo "   Total containers: ${#containers[@]}"
+    echo "   🏃 Running: $(count_running_containers)"
+    echo "   📦 Created: $(count_created_containers)"
+    echo "   ⏹️ Stopped: $(count_stopped_containers)"
+    echo ""
+    echo "💡 Analogi: Seperti RT yang memiliki data lengkap semua rumah dan penghuninya"
+    
+    return 0
+}
+
+# Run container command handler
+cmd_run_container() {
+    local container_name="$1"
+    local command_to_run="${2:-/bin/sh}"
+    
+    if [[ -z "$container_name" ]]; then
+        log_error "Container name is required" \
+                  "Seperti RT perlu tahu rumah mana yang akan dibuka untuk ditempati"
+        echo "Usage: $0 run-container <name> [command]"
+        return 1
+    fi
+    
+    if ! validate_container_name "$container_name"; then
+        return 1
+    fi
+    
+    if ! container_exists "$container_name"; then
+        log_error "Container '$container_name' does not exist" \
+                  "Rumah '$container_name' tidak terdaftar di kompleks RT"
+        echo "Use '$0 list-containers' to see available containers."
+        echo "Use '$0 create-container $container_name' to create it first."
+        return 1
+    fi
+    
+    if container_is_running "$container_name"; then
+        log_warn "Container '$container_name' is already running" \
+                 "Rumah '$container_name' sudah ditempati warga"
+        echo "Use 'nsenter' to enter the running container or stop it first."
+        return 1
+    fi
+    
+    log_info "Pak RT sedang membuka rumah '$container_name' untuk ditempati..." \
+             "Seperti RT yang membuka pintu rumah dan menyalakan listrik untuk warga baru"
+    
+    # Start container with all namespaces and resource limits
+    if ! start_container_process "$container_name" "$command_to_run"; then
+        log_error "Failed to start container: $container_name" \
+                  "Gagal membuka rumah '$container_name' untuk ditempati"
+        return 1
+    fi
+    
+    log_success "Container '$container_name' started successfully!" \
+                "Rumah '$container_name' berhasil dibuka dan siap ditempati"
+    
+    return 0
+}
+
+# Delete container command handler
+cmd_delete_container() {
+    local container_name="$1"
+    
+    if [[ -z "$container_name" ]]; then
+        log_error "Container name is required" \
+                  "Seperti RT perlu tahu rumah mana yang akan dihapus dari kompleks"
+        echo "Usage: $0 delete-container <name>"
+        return 1
+    fi
+    
+    if ! validate_container_name "$container_name"; then
+        return 1
+    fi
+    
+    if ! container_exists "$container_name"; then
+        log_error "Container '$container_name' does not exist" \
+                  "Rumah '$container_name' tidak terdaftar di kompleks RT"
+        echo "Use '$0 list-containers' to see available containers."
+        return 1
+    fi
+    
+    # Confirmation prompt
+    echo "⚠️  WARNING: This will permanently delete container '$container_name' and all its data!"
+    echo "🏠 Analogi: Seperti RT yang akan menghancurkan rumah dan membersihkan semua fasilitasnya"
+    echo ""
+    read -p "Are you sure you want to delete container '$container_name'? (yes/no): " confirmation
+    
+    case "$confirmation" in
+        yes|YES|y|Y)
+            log_info "RT confirmed deletion of container: $container_name" \
+                     "RT mengkonfirmasi penghapusan rumah '$container_name'"
+            ;;
+        *)
+            log_info "Container deletion cancelled by user" \
+                     "Penghapusan rumah dibatalkan oleh RT"
+            return 0
+            ;;
+    esac
+    
+    log_info "Pak RT sedang menghapus rumah '$container_name' dari kompleks..." \
+             "Seperti RT yang membongkar rumah dan membersihkan semua fasilitas"
+    
+    # Stop container if running
+    if container_is_running "$container_name"; then
+        log_info "Stopping running container first..." \
+                 "Mengevakuasi penghuni rumah terlebih dahulu..."
+        stop_container_process "$container_name"
+    fi
+    
+    # Cleanup all container resources
+    if ! cleanup_container_resources "$container_name"; then
+        log_error "Failed to cleanup some resources for container: $container_name" \
+                  "Gagal membersihkan beberapa fasilitas rumah '$container_name'"
+        log_warn "Some resources may need manual cleanup" \
+                 "Beberapa fasilitas mungkin perlu dibersihkan manual oleh RT"
+    fi
+    
+    # Remove container directory
+    local container_dir="$CONTAINERS_DIR/$container_name"
+    if [[ -d "$container_dir" ]]; then
+        rm -rf "$container_dir"
+        log_info "Container directory removed: $container_dir" \
+                 "Folder rumah '$container_name' telah dihapus dari arsip RT"
+    fi
+    
+    log_success "Container '$container_name' deleted successfully!" \
+                "Rumah '$container_name' berhasil dihapus dari kompleks RT"
+    
+    return 0
+}
+
+# Cleanup all containers command handler
+cmd_cleanup_all() {
+    log_warn "RT EMERGENCY CLEANUP - This will remove ALL containers and resources!" \
+             "PEMBERSIHAN DARURAT RT - Ini akan menghapus SEMUA rumah dan fasilitas kompleks!"
+    
+    echo "⚠️  EMERGENCY CLEANUP WARNING!"
+    echo "🏘️  This will permanently delete ALL containers and cleanup ALL resources!"
+    echo "📋 Analogi: Seperti RT yang melakukan pembersihan total kompleks dalam keadaan darurat"
+    echo ""
+    echo "This includes:"
+    echo "  - All container processes"
+    echo "  - All namespaces"
+    echo "  - All network interfaces"
+    echo "  - All cgroups"
+    echo "  - All container data"
+    echo ""
+    read -p "Are you ABSOLUTELY sure you want to cleanup everything? (type 'YES' to confirm): " confirmation
+    
+    if [[ "$confirmation" != "YES" ]]; then
+        log_info "Emergency cleanup cancelled by RT" \
+                 "Pembersihan darurat dibatalkan oleh RT"
+        return 0
+    fi
+    
+    log_info "RT starting emergency cleanup of entire complex..." \
+             "RT memulai pembersihan darurat seluruh kompleks perumahan..."
+    
+    local cleanup_errors=0
+    
+    # Get list of all containers
+    local containers=()
+    if [[ -d "$CONTAINERS_DIR" ]]; then
+        containers=($(find "$CONTAINERS_DIR" -maxdepth 1 -type d -not -path "$CONTAINERS_DIR" -exec basename {} \; 2>/dev/null))
+    fi
+    
+    # Stop and cleanup each container
+    for container_name in "${containers[@]}"; do
+        log_info "Cleaning up container: $container_name" \
+                 "Membersihkan rumah: $container_name"
+        
+        # Stop container if running
+        if container_is_running "$container_name"; then
+            stop_container_process "$container_name" || ((cleanup_errors++))
+        fi
+        
+        # Cleanup container resources
+        cleanup_container_resources "$container_name" || ((cleanup_errors++))
+    done
+    
+    # Remove entire containers directory
+    if [[ -d "$CONTAINERS_DIR" ]]; then
+        log_info "Removing containers directory: $CONTAINERS_DIR" \
+                 "Menghapus seluruh direktori kompleks perumahan"
+        rm -rf "$CONTAINERS_DIR" || ((cleanup_errors++))
+    fi
+    
+    # Cleanup any remaining network namespaces
+    log_info "Cleaning up remaining network namespaces..." \
+             "Membersihkan sisa-sisa sambungan telepon kompleks..."
+    cleanup_all_network_namespaces || ((cleanup_errors++))
+    
+    # Cleanup any remaining cgroups
+    log_info "Cleaning up remaining cgroups..." \
+             "Membersihkan sisa-sisa pembatasan listrik dan air..."
+    cleanup_all_cgroups || ((cleanup_errors++))
+    
+    if [[ $cleanup_errors -eq 0 ]]; then
+        log_success "Emergency cleanup completed successfully!" \
+                    "Pembersihan darurat RT berhasil diselesaikan - kompleks kembali bersih"
+    else
+        log_warn "Emergency cleanup completed with $cleanup_errors errors" \
+                 "Pembersihan darurat selesai dengan $cleanup_errors masalah yang perlu perhatian RT"
+        log_info "Some resources may need manual cleanup" \
+                 "Beberapa fasilitas mungkin perlu dibersihkan manual"
+    fi
+    
+    return $cleanup_errors
+}
+
+# Comprehensive container resource cleanup
+cleanup_container_resources() {
+    local container_name=$1
+    
+    log_info "Cleaning up all resources for container: $container_name" \
+             "Membersihkan semua fasilitas rumah: $container_name"
+    
+    local cleanup_errors=0
+    
+    # Stop container process if running
+    if container_is_running "$container_name"; then
+        log_info "Stopping container process..." \
+                 "Menghentikan aktivitas penghuni rumah..."
+        stop_container_process "$container_name" || ((cleanup_errors++))
+    fi
+    
+    # Cleanup network resources
+    log_debug "Cleaning up network resources..." \
+              "Membersihkan sambungan telepon rumah..."
+    cleanup_container_network "$container_name" || ((cleanup_errors++))
+    
+    # Cleanup cgroup resources
+    log_debug "Cleaning up cgroup resources..." \
+              "Membersihkan pembatasan listrik dan air rumah..."
+    cleanup_container_cgroup "$container_name" || ((cleanup_errors++))
+    
+    # Cleanup namespace resources
+    log_debug "Cleaning up namespace resources..." \
+              "Membersihkan sistem internal rumah..."
+    cleanup_container_namespaces "$container_name" || ((cleanup_errors++))
+    
+    # Remove IP address reservation
+    local container_ip=$(get_container_ip "$container_name" 2>/dev/null || true)
+    if [[ -n "$container_ip" ]]; then
+        unset_container_ip "$container_name"
+        log_debug "Released IP address for container: $container_name"
+    fi
+    
+    if [[ $cleanup_errors -eq 0 ]]; then
+        log_success "All resources cleaned up for container: $container_name" \
+                    "Semua fasilitas rumah '$container_name' berhasil dibersihkan"
+    else
+        log_warn "Resource cleanup completed with $cleanup_errors errors for container: $container_name" \
+                 "Pembersihan rumah selesai dengan $cleanup_errors masalah"
+    fi
+    
+    return $cleanup_errors
+}
+
+# Save container metadata to config file
+save_container_metadata() {
+    local container_name=$1
+    local memory_mb=$2
+    local cpu_percent=$3
+    local ip_address=$(get_container_ip "$container_name" 2>/dev/null || echo "N/A")
+    
+    local config_file="$CONTAINERS_DIR/$container_name/config.json"
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    
+    cat > "$config_file" << EOF
+{
+  "name": "$container_name",
+  "created": "$timestamp",
+  "status": "created",
+  "resources": {
+    "memory_mb": $memory_mb,
+    "cpu_percentage": $cpu_percent
+  },
+  "network": {
+    "ip_address": "$ip_address",
+    "veth_host": "veth-$container_name-host",
+    "veth_container": "veth-$container_name-cont"
+  },
+  "namespaces": {
+    "pid": "/proc/\$PID/ns/pid",
+    "net": "/proc/\$PID/ns/net",
+    "mnt": "/proc/\$PID/ns/mnt",
+    "uts": "/proc/\$PID/ns/uts",
+    "ipc": "/proc/\$PID/ns/ipc",
+    "user": "/proc/\$PID/ns/user"
+  },
+  "cgroups": {
+    "memory": "/sys/fs/cgroup/memory/container-$container_name",
+    "cpu": "/sys/fs/cgroup/cpu/container-$container_name"
+  },
+  "pid": null
+}
+EOF
+    
+    log_debug "Container metadata saved to: $config_file" \
+              "Data rumah disimpan dalam arsip RT"
+}
+
+# Start container process with all namespaces and limits
+start_container_process() {
+    local container_name=$1
+    local command_to_run=${2:-"/bin/sh"}
+    local container_rootfs="$CONTAINERS_DIR/$container_name/rootfs"
+    local pid_file="$CONTAINERS_DIR/$container_name/container.pid"
+    
+    log_info "Starting container process for: $container_name" \
+             "Memulai aktivitas penghuni rumah: $container_name"
+    
+    # Create startup script for the container
+    local startup_script="$CONTAINERS_DIR/$container_name/startup.sh"
+    cat > "$startup_script" << EOF
+#!/bin/bash
+set -e
+
+# Mount essential filesystems
+mount -t proc proc /proc 2>/dev/null || true
+mount -t sysfs sysfs /sys 2>/dev/null || true
+mount -t tmpfs tmpfs /tmp 2>/dev/null || true
+
+# Set hostname
+hostname "$container_name" 2>/dev/null || true
+
+# Setup basic environment
+export PATH="/bin:/sbin:/usr/bin:/usr/sbin"
+export HOME="/root"
+export USER="root"
+export SHELL="/bin/sh"
+
+# Change to root directory
+cd /
+
+# Execute the requested command
+exec $command_to_run
+EOF
+    
+    chmod +x "$startup_script"
+    
+    # Start container with all namespaces
+    log_info "Launching container with full isolation..." \
+             "Meluncurkan rumah dengan sistem isolasi lengkap..."
+    
+    # Use unshare to create all namespaces and start the container
+    unshare --pid --mount --uts --ipc --net --user --map-root-user \
+        chroot "$container_rootfs" /startup.sh &
+    
+    local container_pid=$!
+    echo "$container_pid" > "$pid_file"
+    
+    # Wait a moment to ensure container started
+    sleep 1
+    
+    # Check if container is still running
+    if ! kill -0 "$container_pid" 2>/dev/null; then
+        log_error "Container failed to start" \
+                  "Rumah gagal dibuka untuk penghuni"
+        rm -f "$pid_file"
+        return 1
+    fi
+    
+    # Add process to cgroups
+    add_process_to_container_cgroups "$container_name" "$container_pid"
+    
+    # Update container status
+    update_container_status "$container_name" "running" "$container_pid"
+    
+    log_success "Container '$container_name' started with PID: $container_pid" \
+                "Rumah '$container_name' berhasil dibuka dengan penghuni PID: $container_pid"
+    
+    # Show container information
+    echo ""
+    echo "🏠 Container Information:"
+    echo "   Name: $container_name"
+    echo "   PID: $container_pid"
+    echo "   Command: $command_to_run"
+    echo "   IP: $(get_container_ip "$container_name" 2>/dev/null || echo "N/A")"
+    echo ""
+    echo "💡 To connect to the container:"
+    echo "   nsenter -t $container_pid -p -m -u -i -n $command_to_run"
+    echo ""
+    
+    return 0
+}
+
+# Stop container process
+stop_container_process() {
+    local container_name=$1
+    local pid_file="$CONTAINERS_DIR/$container_name/container.pid"
+    
+    if [[ ! -f "$pid_file" ]]; then
+        log_debug "No PID file found for container: $container_name"
+        return 0
+    fi
+    
+    local container_pid=$(cat "$pid_file")
+    
+    if ! kill -0 "$container_pid" 2>/dev/null; then
+        log_debug "Container process already stopped: $container_name"
+        rm -f "$pid_file"
+        return 0
+    fi
+    
+    log_info "Stopping container process: $container_pid" \
+             "Menghentikan aktivitas penghuni rumah"
+    
+    # Try graceful shutdown first
+    kill -TERM "$container_pid" 2>/dev/null || true
+    
+    # Wait for graceful shutdown
+    local timeout=10
+    while [[ $timeout -gt 0 ]] && kill -0 "$container_pid" 2>/dev/null; do
+        sleep 1
+        ((timeout--))
+    done
+    
+    # Force kill if still running
+    if kill -0 "$container_pid" 2>/dev/null; then
+        log_warn "Force killing container process: $container_pid" \
+                 "Menghentikan paksa aktivitas penghuni rumah"
+        kill -KILL "$container_pid" 2>/dev/null || true
+    fi
+    
+    rm -f "$pid_file"
+    update_container_status "$container_name" "stopped"
+    
+    log_success "Container process stopped: $container_name" \
+                "Aktivitas penghuni rumah berhasil dihentikan"
+    
+    return 0
+}
+
+# Update container status in config file
+update_container_status() {
+    local container_name=$1
+    local status=$2
+    local pid=${3:-"null"}
+    local config_file="$CONTAINERS_DIR/$container_name/config.json"
+    
+    if [[ -f "$config_file" ]]; then
+        # Update status and PID in JSON file
+        sed -i "s/\"status\": \"[^\"]*\"/\"status\": \"$status\"/" "$config_file"
+        sed -i "s/\"pid\": [^,}]*/\"pid\": $pid/" "$config_file"
+        
+        log_debug "Updated container status: $container_name -> $status"
+    fi
+}
+
+# Add process to container cgroups
+add_process_to_container_cgroups() {
+    local container_name=$1
+    local pid=$2
+    
+    local memory_cgroup="/sys/fs/cgroup/memory/container-$container_name"
+    local cpu_cgroup="/sys/fs/cgroup/cpu/container-$container_name"
+    
+    # Add to memory cgroup
+    if [[ -d "$memory_cgroup" ]]; then
+        echo "$pid" > "$memory_cgroup/cgroup.procs" 2>/dev/null || true
+        log_debug "Added PID $pid to memory cgroup: $container_name"
+    fi
+    
+    # Add to CPU cgroup
+    if [[ -d "$cpu_cgroup" ]]; then
+        echo "$pid" > "$cpu_cgroup/cgroup.procs" 2>/dev/null || true
+        log_debug "Added PID $pid to CPU cgroup: $container_name"
+    fi
+}
+
+# Cleanup all network namespaces
+cleanup_all_network_namespaces() {
+    log_info "Cleaning up all network namespaces..." \
+             "Membersihkan semua sambungan telepon kompleks..."
+    
+    local cleanup_count=0
+    
+    # List all network namespaces and clean them up
+    if command -v ip &> /dev/null; then
+        local namespaces=$(ip netns list 2>/dev/null | grep -E "container-|test-" | awk '{print $1}' || true)
+        
+        for ns in $namespaces; do
+            log_debug "Removing network namespace: $ns"
+            ip netns delete "$ns" 2>/dev/null || true
+            ((cleanup_count++))
+        done
+    fi
+    
+    log_info "Cleaned up $cleanup_count network namespaces" \
+             "Berhasil membersihkan $cleanup_count sambungan telepon"
+    
+    return 0
+}
+
+# Cleanup all cgroups
+cleanup_all_cgroups() {
+    log_info "Cleaning up all container cgroups..." \
+             "Membersihkan semua pembatasan listrik dan air kompleks..."
+    
+    local cleanup_count=0
+    
+    # Cleanup memory cgroups
+    if [[ -d "/sys/fs/cgroup/memory" ]]; then
+        local memory_cgroups=$(find /sys/fs/cgroup/memory -name "container-*" -type d 2>/dev/null || true)
+        for cgroup in $memory_cgroups; do
+            log_debug "Removing memory cgroup: $cgroup"
+            rmdir "$cgroup" 2>/dev/null || true
+            ((cleanup_count++))
+        done
+    fi
+    
+    # Cleanup CPU cgroups
+    if [[ -d "/sys/fs/cgroup/cpu" ]]; then
+        local cpu_cgroups=$(find /sys/fs/cgroup/cpu -name "container-*" -type d 2>/dev/null || true)
+        for cgroup in $cpu_cgroups; do
+            log_debug "Removing CPU cgroup: $cgroup"
+            rmdir "$cgroup" 2>/dev/null || true
+            ((cleanup_count++))
+        done
+    fi
+    
+    log_info "Cleaned up $cleanup_count cgroups" \
+             "Berhasil membersihkan $cleanup_count pembatasan fasilitas"
+    
+    return 0
+}
+
+# Helper functions for container counting
+count_running_containers() {
+    local count=0
+    if [[ -d "$CONTAINERS_DIR" ]]; then
+        local containers=($(find "$CONTAINERS_DIR" -maxdepth 1 -type d -not -path "$CONTAINERS_DIR" -exec basename {} \; 2>/dev/null))
+        for container_name in "${containers[@]}"; do
+            if container_is_running "$container_name"; then
+                ((count++))
+            fi
+        done
+    fi
+    echo $count
+}
+
+count_created_containers() {
+    local count=0
+    if [[ -d "$CONTAINERS_DIR" ]]; then
+        local containers=($(find "$CONTAINERS_DIR" -maxdepth 1 -type d -not -path "$CONTAINERS_DIR" -exec basename {} \; 2>/dev/null))
+        for container_name in "${containers[@]}"; do
+            if [[ -f "$CONTAINERS_DIR/$container_name/config.json" ]] && ! container_is_running "$container_name"; then
+                ((count++))
+            fi
+        done
+    fi
+    echo $count
+}
+
+count_stopped_containers() {
+    local count=0
+    if [[ -d "$CONTAINERS_DIR" ]]; then
+        local containers=($(find "$CONTAINERS_DIR" -maxdepth 1 -type d -not -path "$CONTAINERS_DIR" -exec basename {} \; 2>/dev/null))
+        for container_name in "${containers[@]}"; do
+            if [[ ! -f "$CONTAINERS_DIR/$container_name/config.json" ]] && ! container_is_running "$container_name"; then
+                ((count++))
+            fi
+        done
+    fi
+    echo $count
+}
+
 # Show usage information
 show_usage() {
     cat << EOF
@@ -3355,6 +4270,14 @@ Educational container runtime using Linux namespaces and cgroups
 
 USAGE:
     $0 <command> [options]
+
+CONTAINER LIFECYCLE COMMANDS:
+    create-container <name> [--ram=MB] [--cpu=PERCENT]
+                                    Create new container with resource limits
+    list-containers                 List all containers with status and resources
+    run-container <name> [command]  Start container and provide interactive shell
+    delete-container <name>         Delete container and cleanup all resources
+    cleanup-all                     Emergency cleanup of all containers and resources
 
 NETWORK COMMANDS (Task 6 Implementation):
     test-network                    Test network functionality
@@ -3367,17 +4290,27 @@ NETWORK COMMANDS (Task 6 Implementation):
     list-networks                   List all container networks
 
 EXAMPLES:
+    # Container lifecycle
+    $0 create-container rumah-a --ram=512 --cpu=50
+    $0 list-containers
+    $0 run-container rumah-a
+    $0 run-container rumah-a /bin/ls
+    $0 delete-container rumah-a
+    $0 cleanup-all
+
+    # Network testing
     $0 test-network
     $0 create-test-network
     $0 show-network test-container-1
     $0 test-connectivity test-container-1 test-container-2
-    $0 monitor-network test-container-1 30
-    $0 debug-network test-container-1
-    $0 cleanup-test-network
 
 ANALOGY:
     RT Container Runtime seperti Rukun Tetangga (RT) yang mengatur kompleks perumahan.
-    Setiap container adalah rumah dengan sistem telepon sendiri untuk komunikasi.
+    - create-container: RT mendaftarkan rumah baru dengan alokasi listrik dan air
+    - list-containers: RT melihat daftar semua rumah dan status penghuninya
+    - run-container: RT membuka pintu rumah untuk ditempati warga
+    - delete-container: RT menghapus rumah dan membersihkan semua fasilitasnya
+    - cleanup-all: RT membersihkan seluruh kompleks dalam keadaan darurat
 
 For more information, visit: https://github.com/container-learning/rt-runtime
 EOF
@@ -3396,9 +4329,9 @@ main() {
     # Setup signal handlers
     setup_signal_handlers
     
-    # Check dependencies and privileges for network commands
+    # Check dependencies and privileges for commands that need them
     case "$command" in
-        test-network|create-test-network|cleanup-test-network|show-network|test-connectivity|monitor-network|debug-network|list-networks)
+        create-container|run-container|delete-container|cleanup-all|test-network|create-test-network|cleanup-test-network|show-network|test-connectivity|monitor-network|debug-network|list-networks)
             check_dependencies
             check_privileges
             ;;
@@ -3409,6 +4342,22 @@ main() {
     
     # Handle commands
     case "$command" in
+        "create-container")
+            shift  # Remove command from arguments
+            cmd_create_container "$@"
+            ;;
+        "list-containers")
+            cmd_list_containers
+            ;;
+        "run-container")
+            cmd_run_container "$2" "$3"
+            ;;
+        "delete-container")
+            cmd_delete_container "$2"
+            ;;
+        "cleanup-all")
+            cmd_cleanup_all
+            ;;
         "test-network")
             test_network_functionality
             ;;

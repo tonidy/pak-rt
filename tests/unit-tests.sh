@@ -1,10 +1,10 @@
 #!/bin/bash
-# Pak RT Container Runtime - Unit Tests
+# RT Container Runtime - Unit Tests
 # Tests individual functions dan components
 
 set -e
 
-echo "🔬 Running Unit Tests untuk Pak RT Container Runtime"
+echo "🔬 Running Unit Tests untuk RT Container Runtime"
 echo "===================================================="
 
 # Test configuration

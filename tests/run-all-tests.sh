@@ -1,10 +1,10 @@
 #!/bin/bash
-# Pak RT Container Runtime - Test Runner
+# RT Container Runtime - Test Runner
 # Runs all tests dalam proper order
 
 set -e
 
-echo "🧪 Pak RT Container Runtime - Running All Tests"
+echo "🧪 RT Container Runtime - Running All Tests"
 echo "================================================"
 
 # Colors untuk output

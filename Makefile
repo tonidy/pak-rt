@@ -1,11 +1,11 @@
-# Pak RT Container Runtime - Makefile untuk macOS Development
+# RT Container Runtime - Makefile untuk macOS Development
 # Requires Docker dan Docker Compose untuk Linux environment
 
 .PHONY: help setup dev test test-unit test-integration clean
 
 # Default target
 help:
-	@echo "Pak RT Container Runtime - Development Commands"
+	@echo "RT Container Runtime - Development Commands"
 	@echo ""
 	@echo "Available commands:"
 	@echo "  make setup           - Setup development environment"
@@ -28,14 +28,14 @@ check-docker:
 
 # Setup development environment
 setup: check-docker
-	@echo "🏗️  Setting up Pak RT development environment..."
+	@echo "🏗️  Setting up RT development environment..."
 	@docker-compose build rt-dev
 	@echo "✅ Development environment ready!"
 	@echo "Run 'make dev' untuk start development container"
 
 # Start interactive development container
 dev: check-docker
-	@echo "🚀 Starting Pak RT development container..."
+	@echo "🚀 Starting RT development container..."
 	@echo "📝 Code directory mounted ke /workspace"
 	@echo "🔧 Privileged mode enabled untuk namespace operations"
 	@docker-compose run --rm rt-dev
