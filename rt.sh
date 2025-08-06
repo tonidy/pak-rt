@@ -3408,7 +3408,7 @@ EOF
 # Create UTS namespace for hostname isolation
 create_uts_namespace() {
     local container_name=$1
-    local hostname=${2:-$container_name}
+    local hostname_param=${2:-$container_name}
     
     log_step 3 "Creating UTS namespace for container: $container_name" \
               "Seperti memberikan nama rumah sendiri yang unik di kompleks"
@@ -3416,28 +3416,28 @@ create_uts_namespace() {
     local ns_dir="$CONTAINERS_DIR/$container_name/namespaces"
     create_directory "$ns_dir"
     
-    # Validate hostname
-    if [[ ! "$hostname" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]$ ]]; then
+    # Validate and sanitize hostname
+    if [[ ! "$hostname_param" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]$ ]]; then
         log_warn "Invalid hostname format, using container name" \
                  "Format nama rumah tidak sesuai aturan, menggunakan nama default"
-        hostname="$container_name"
+        hostname_param="$container_name"
     fi
     
-    log_info "Setting container hostname to: $hostname" \
-             "Seperti memasang papan nama rumah: $hostname"
+    log_info "Setting container hostname to: $hostname_param" \
+             "Seperti memasang papan nama rumah: $hostname_param"
     
     # Create UTS namespace configuration
     cat > "$ns_dir/uts.conf" << EOF
 uts_namespace_enabled=true
-hostname=$hostname
-domainname=container.local
+hostname="$hostname_param"
+domainname="container.local"
 EOF
     
     # Create hostname file for the container
-    echo "$hostname" > "$CONTAINERS_DIR/$container_name/rootfs/etc/hostname"
+    echo "$hostname_param" > "$CONTAINERS_DIR/$container_name/rootfs/etc/hostname"
     
-    log_success "UTS namespace configuration prepared with hostname: $hostname" \
-                "Papan nama rumah '$hostname' siap dipasang"
+    log_success "UTS namespace configuration prepared with hostname: $hostname_param" \
+                "Papan nama rumah '$hostname_param' siap dipasang"
     
     return 0
 }
@@ -5910,12 +5910,27 @@ start_container_with_namespaces() {
         fi
     done
     
-    # Source namespace configurations
-    source "$ns_dir/pid.conf"
-    source "$ns_dir/mount.conf"
-    source "$ns_dir/uts.conf"
-    source "$ns_dir/ipc.conf"
-    source "$ns_dir/user.conf"
+    # Source namespace configurations with error handling
+    local hostname="$container_name"  # Default hostname
+    local host_uid=$(id -u)
+    local host_gid=$(id -g)
+    
+    # Source configurations and extract variables safely
+    if [[ -f "$ns_dir/uts.conf" ]]; then
+        source "$ns_dir/uts.conf"
+        # hostname variable should now be set from uts.conf
+    fi
+    
+    if [[ -f "$ns_dir/user.conf" ]]; then
+        source "$ns_dir/user.conf"
+        # host_uid and host_gid should be set from user.conf
+    fi
+    
+    # Ensure hostname is set
+    if [[ -z "$hostname" ]]; then
+        hostname="$container_name"
+        log_warn "Hostname not found in configuration, using container name: $hostname"
+    fi
     
     # Create the unshare command with all namespaces
     local unshare_cmd="unshare"
