@@ -2261,48 +2261,84 @@ setup_busybox() {
 test_busybox_functionality() {
     log_step 4 "Testing busybox functionality" \
               "Seperti RT yang menguji semua peralatan rumah sebelum diserahkan ke warga"
-    
+
     # Test 1: Check if busybox exists and is executable
     if [[ ! -x "$BUSYBOX_PATH" ]]; then
         log_error "Busybox is not executable" \
                   "Seperti peralatan rumah yang tidak bisa digunakan"
         return 1
     fi
-    
-    # Test 2: Check busybox version
+
+    # Test 2: Check busybox version/help
     local version_output
     if ! version_output=$("$BUSYBOX_PATH" --help 2>&1 | head -1); then
         log_error "Failed to get busybox version" \
                   "Seperti tidak bisa mengecek spesifikasi peralatan rumah"
         return 1
     fi
-    
-    log_info "Busybox version: $version_output" \
+
+    log_info "Busybox info: $version_output" \
              "Seperti mengecek spesifikasi peralatan yang tersedia"
-    
-    # Test 3: Test basic commands
+
+    # Test 3: Test basic commands with actual functionality instead of --help
     local test_commands=("echo" "ls" "cat" "ps" "sh")
-    
+
     for cmd in "${test_commands[@]}"; do
-        if ! "$BUSYBOX_PATH" "$cmd" --help &>/dev/null; then
-            log_warn "Command '$cmd' not available in busybox" \
-                     "Seperti ada peralatan yang tidak tersedia di set standar"
-        else
-            log_debug "Command '$cmd' available and working"
-        fi
+        case "$cmd" in
+            "echo")
+                if ! "$BUSYBOX_PATH" echo "test" &>/dev/null; then
+                    log_warn "Command '$cmd' not working in busybox" \
+                             "Seperti ada peralatan yang tidak berfungsi"
+                else
+                    log_debug "Command '$cmd' available and working"
+                fi
+                ;;
+            "ls")
+                if ! "$BUSYBOX_PATH" ls /tmp &>/dev/null; then
+                    log_warn "Command '$cmd' not working in busybox" \
+                             "Seperti ada peralatan yang tidak berfungsi"
+                else
+                    log_debug "Command '$cmd' available and working"
+                fi
+                ;;
+            "cat")
+                if ! echo "test" | "$BUSYBOX_PATH" cat &>/dev/null; then
+                    log_warn "Command '$cmd' not working in busybox" \
+                             "Seperti ada peralatan yang tidak berfungsi"
+                else
+                    log_debug "Command '$cmd' available and working"
+                fi
+                ;;
+            "ps")
+                if ! "$BUSYBOX_PATH" ps &>/dev/null; then
+                    log_warn "Command '$cmd' not working in busybox" \
+                             "Seperti ada peralatan yang tidak berfungsi"
+                else
+                    log_debug "Command '$cmd' available and working"
+                fi
+                ;;
+            "sh")
+                if ! echo "echo test" | "$BUSYBOX_PATH" sh &>/dev/null; then
+                    log_warn "Command '$cmd' not working in busybox" \
+                             "Seperti ada peralatan yang tidak berfungsi"
+                else
+                    log_debug "Command '$cmd' available and working"
+                fi
+                ;;
+        esac
     done
-    
+
     # Test 4: Test shell functionality
     local test_script='echo "Hello from busybox shell"'
-    if ! echo "$test_script" | "$BUSYBOX_PATH" sh; then
+    if ! echo "$test_script" | "$BUSYBOX_PATH" sh &>/dev/null; then
         log_error "Busybox shell test failed" \
                   "Seperti sistem komunikasi rumah tidak berfungsi"
         return 1
     fi
-    
+
     log_success "All busybox functionality tests passed" \
                 "Semua peralatan rumah telah diuji dan berfungsi dengan baik"
-    
+
     return 0
 }
 
@@ -4456,7 +4492,7 @@ cleanup_failed_container() {
     cleanup_container_network "$container_name" 2>/dev/null || true
     
     # Cleanup cgroups
-    cleanup_container_cgroup "$container_name" 2>/dev/null || true
+    cleanup_container_cgroups "$container_name" 2>/dev/null || true
     
     # Remove IP reservation
     if [[ -n "${CONTAINER_IPS:-}" ]]; then
@@ -6921,7 +6957,7 @@ cleanup_container_resources() {
     # Cleanup cgroup resources
     log_debug "Cleaning up cgroup resources..." \
               "Membersihkan pembatasan listrik dan air rumah..."
-    cleanup_container_cgroup "$container_name" || ((cleanup_errors++))
+    cleanup_container_cgroups "$container_name" || ((cleanup_errors++))
     
     # Cleanup namespace resources
     log_debug "Cleaning up namespace resources..." \
