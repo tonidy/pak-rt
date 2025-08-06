@@ -27,6 +27,16 @@ help:
 	@echo "  make test-cgroup    - Run cgroup management tests"
 	@echo "  make test-network   - Run network management tests"
 	@echo ""
+	@echo "🎬 DEMO SCENARIOS:"
+	@echo "  make demo           - Show available demo scenarios"
+	@echo "  make demo-basic     - Basic container lifecycle demo"
+	@echo "  make demo-namespace - Namespace isolation demo"
+	@echo "  make demo-resources - Resource management demo"
+	@echo "  make demo-network   - Container networking demo"
+	@echo "  make demo-multi     - Multi-container application demo"
+	@echo "  make demo-tour      - Complete educational tour"
+	@echo "  make demo-all       - Run all demo scenarios"
+	@echo ""
 	@echo "ℹ️  OTHER COMMANDS:"
 	@echo "  make help           - Show this help message"
 	@echo ""
@@ -149,6 +159,40 @@ clean: check-docker
 	@docker-compose down -v --remove-orphans
 	@docker system prune -f
 	@echo "✅ Cleanup complete!"
+
+# Demo scenarios untuk educational purposes
+demo: check-docker
+	@echo "🎬 Starting RT Container Runtime demo scenarios..."
+	@echo "📝 Available demos: basic-lifecycle, namespace-isolation, resource-management, container-networking, multi-container, educational-tour, all-demos"
+	@docker-compose run --rm rt-dev bash -c "cd /workspace && ./demo-scenarios.sh"
+
+demo-basic: check-docker
+	@echo "🎬 Running basic lifecycle demo..."
+	@docker-compose run --rm rt-dev bash -c "cd /workspace && ./demo-scenarios.sh basic-lifecycle"
+
+demo-namespace: check-docker
+	@echo "🎬 Running namespace isolation demo..."
+	@docker-compose run --rm rt-dev bash -c "cd /workspace && ./demo-scenarios.sh namespace-isolation"
+
+demo-resources: check-docker
+	@echo "🎬 Running resource management demo..."
+	@docker-compose run --rm rt-dev bash -c "cd /workspace && ./demo-scenarios.sh resource-management"
+
+demo-network: check-docker
+	@echo "🎬 Running container networking demo..."
+	@docker-compose run --rm rt-dev bash -c "cd /workspace && ./demo-scenarios.sh container-networking"
+
+demo-multi: check-docker
+	@echo "🎬 Running multi-container demo..."
+	@docker-compose run --rm rt-dev bash -c "cd /workspace && ./demo-scenarios.sh multi-container"
+
+demo-tour: check-docker
+	@echo "🎬 Running complete educational tour..."
+	@docker-compose run --rm rt-dev bash -c "cd /workspace && ./demo-scenarios.sh educational-tour"
+
+demo-all: check-docker
+	@echo "🎬 Running all demo scenarios..."
+	@docker-compose run --rm rt-dev bash -c "cd /workspace && ./demo-scenarios.sh all-demos"
 
 # Development shortcuts
 shell: dev
