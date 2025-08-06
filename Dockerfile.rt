@@ -1,0 +1,109 @@
+FROM ubuntu:22.04
+
+# Metadata
+LABEL maintainer="RT Container Runtime"
+LABEL description="RT (Rukun Tetangga) Container Runtime - Educational container runtime"
+LABEL version="1.0"
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install required packages for RT Container Runtime
+RUN apt-get update && apt-get install -y \
+    # Core utilities
+    bash \
+    coreutils \
+    util-linux \
+    # Container runtime dependencies
+    unshare \
+    nsenter \
+    iproute2 \
+    iptables \
+    # User namespace support
+    uidmap \
+    # Process management
+    procps \
+    psmisc \
+    # Network utilities
+    iputils-ping \
+    net-tools \
+    # File system utilities
+    mount \
+    # JSON processing
+    jq \
+    # Text processing
+    sed \
+    grep \
+    awk \
+    # System monitoring
+    htop \
+    # Development tools (optional)
+    vim \
+    curl \
+    wget \
+    # Busybox for containers
+    busybox-static \
+    && rm -rf /var/lib/apt/lists/*
+
+# Enable user namespaces
+RUN echo 'kernel.unprivileged_userns_clone=1' >> /etc/sysctl.conf
+
+# Create RT user for rootless mode
+RUN useradd -m -s /bin/bash rtuser && \
+    echo "rtuser:100000:65536" >> /etc/subuid && \
+    echo "rtuser:100000:65536" >> /etc/subgid
+
+# Create directories
+RUN mkdir -p /opt/rt-runtime /tmp/containers
+WORKDIR /opt/rt-runtime
+
+# Copy RT Container Runtime script
+COPY rt.sh /opt/rt-runtime/
+COPY demo-rootless.sh /opt/rt-runtime/
+COPY README-ROOTLESS.md /opt/rt-runtime/
+
+# Make scripts executable
+RUN chmod +x /opt/rt-runtime/rt.sh /opt/rt-runtime/demo-rootless.sh
+
+# Setup busybox for containers
+RUN cp /bin/busybox /tmp/containers/busybox && \
+    chmod +x /tmp/containers/busybox
+
+# Create startup script
+RUN cat > /opt/rt-runtime/start-rt.sh << 'EOF'
+#!/bin/bash
+echo "🏘️  RT Container Runtime - Docker Environment"
+echo "============================================="
+echo ""
+echo "📚 Available Commands:"
+echo "  ./rt.sh help                    - Show help"
+echo "  ./rt.sh --rootless help         - Rootless mode help"
+echo "  ./demo-rootless.sh              - Demo rootless capabilities"
+echo ""
+echo "💡 Examples:"
+echo "  # Create container (needs privileged mode)"
+echo "  ./rt.sh create-container webapp"
+echo ""
+echo "  # Create container (rootless mode)"
+echo "  ./rt.sh --rootless create-container webapp"
+echo ""
+echo "  # List containers"
+echo "  ./rt.sh list-containers"
+echo ""
+echo "🔧 Current Environment:"
+echo "  - User: $(whoami)"
+echo "  - Privileged: $([ -w /sys/fs/cgroup ] && echo 'Yes' || echo 'No')"
+echo "  - Rootless Support: $([ -f /proc/sys/kernel/unprivileged_userns_clone ] && echo 'Available' || echo 'Not Available')"
+echo ""
+exec "$@"
+EOF
+
+RUN chmod +x /opt/rt-runtime/start-rt.sh
+
+# Set up environment
+ENV PATH="/opt/rt-runtime:$PATH"
+ENV RT_CONTAINER_DIR="/tmp/containers"
+
+# Default command
+ENTRYPOINT ["/opt/rt-runtime/start-rt.sh"]
+CMD ["/bin/bash"]

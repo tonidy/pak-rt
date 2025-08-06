@@ -1,0 +1,104 @@
+# Docker Compose file for RT Container Runtime
+services:
+  # RT Container Runtime - Full Privileged Mode
+  rt-runtime:
+    build:
+      context: .
+      dockerfile: Dockerfile.rt
+    container_name: rt-container-runtime
+    hostname: rt-kompleks
+    privileged: true  # Required for full container runtime capabilities
+    volumes:
+      # Mount source code for development
+      - .:/workspace:rw
+      # Persistent storage for containers
+      - rt-containers:/tmp/containers
+      # Access to host's cgroup (for resource management)
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    networks:
+      - rt-network
+    environment:
+      - VERBOSE_MODE=false
+      - DEBUG_MODE=false
+      - MONITORING_ENABLED=false
+      - ROOTLESS_MODE=false
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    command: /bin/bash
+
+  # RT Container Runtime - Rootless Mode
+  rt-rootless:
+    build:
+      context: .
+      dockerfile: Dockerfile.rt
+    container_name: rt-rootless
+    hostname: rt-rootless
+    # No privileged mode - for rootless demonstration
+    user: rtuser
+    volumes:
+      - .:/workspace:rw
+      - rt-rootless-containers:/home/rtuser/.local/share/rt-containers
+    networks:
+      - rt-network
+    environment:
+      - VERBOSE_MODE=true
+      - DEBUG_MODE=false
+      - MONITORING_ENABLED=false
+      - ROOTLESS_MODE=true
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    command: /bin/bash
+
+  # Demo Environment - untuk testing RT containers
+  rt-demo:
+    build:
+      context: .
+      dockerfile: Dockerfile.rt
+    container_name: rt-demo
+    hostname: rt-demo
+    privileged: true
+    volumes:
+      - .:/workspace:rw
+      - rt-demo-containers:/tmp/containers
+    networks:
+      - rt-network
+    environment:
+      - VERBOSE_MODE=true
+      - DEBUG_MODE=true
+      - MONITORING_ENABLED=true
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    command: >
+      bash -c "
+        echo '🏘️  RT Demo Environment Started';
+        echo '================================';
+        echo '';
+        echo '📋 Running system validation...';
+        ./rt.sh validate-system;
+        echo '';
+        echo '🚀 Creating demo container...';
+        ./rt.sh create-container demo-webapp --ram=256 --cpu=30;
+        echo '';
+        echo '📊 Listing containers...';
+        ./rt.sh list-containers;
+        echo '';
+        echo '💡 Demo completed! You can now interact with RT runtime.';
+        echo 'Try: ./rt.sh run-container demo-webapp';
+        exec /bin/bash
+      "
+
+networks:
+  rt-network:
+    driver: bridge
+    name: rt-kompleks-network
+
+volumes:
+  rt-containers:
+    name: rt-containers-data
+  rt-rootless-containers:
+    name: rt-rootless-data
+  rt-demo-containers:
+    name: rt-demo-data

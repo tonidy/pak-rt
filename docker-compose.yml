@@ -1,10 +1,12 @@
 # Docker Compose file for RT Container Runtime development
 services:
+  # RT Container Runtime - Full Privileged Development
   rt-dev:
     build:
       context: .
       dockerfile: Dockerfile.dev
     container_name: pak-rt-dev
+    hostname: rt-kompleks-dev
     privileged: true
     volumes:
       # Mount code directory untuk live development
@@ -17,6 +19,9 @@ services:
     environment:
       # Development environment variables
       - CONTAINER_RUNTIME_ENV=development
+      - TERM=xterm-256color
+      - VERBOSE_MODE=false
+      - DEBUG_MODE=false
     # Keep container running untuk interactive development
     stdin_open: true
     tty: true
@@ -32,9 +37,78 @@ services:
       - NET_ADMIN
       - SYS_PTRACE
       - SYS_CHROOT
-    # Default command
-    command: /bin/bash
+    # Enhanced startup command
+    command: >
+      bash -c "
+        echo '🏘️  RT Container Runtime - Development Environment';
+        echo '================================================';
+        echo '';
+        echo '📋 Quick Start Commands:';
+        echo '  ./rt.sh help                     # Show help';
+        echo '  ./rt.sh validate-system          # Check system';
+        echo '  ./rt.sh create-container webapp  # Create container';
+        echo '  ./rt.sh list-containers          # List containers';
+        echo '';
+        echo '🔧 Rootless Mode:';
+        echo '  ./rt.sh --rootless help          # Rootless help';
+        echo '  ./demo-rootless.sh               # Demo rootless';
+        echo '';
+        echo '💡 Development Tools Available:';
+        echo '  - shellcheck, bats, strace, gdb, htop';
+        echo '';
+        exec /bin/bash
+      "
+
+  # RT Container Runtime - Rootless Mode
+  rt-rootless:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: pak-rt-rootless
+    hostname: rt-rootless
+    # No privileged mode for rootless demonstration
+    user: developer
+    volumes:
+      - .:/workspace
+      - rt-rootless-data:/home/developer/.local/share/rt-containers
+    working_dir: /workspace
+    environment:
+      - CONTAINER_RUNTIME_ENV=rootless
+      - TERM=xterm-256color
+      - VERBOSE_MODE=true
+      - ROOTLESS_MODE=true
+    stdin_open: true
+    tty: true
+    networks:
+      - rt-network
+    command: >
+      bash -c "
+        echo '🏘️  RT Container Runtime - Rootless Mode';
+        echo '======================================';
+        echo '';
+        echo '📋 Rootless Environment Info:';
+        echo '  - User: developer (non-privileged)';
+        echo '  - Container Storage: ~/.local/share/rt-containers';
+        echo '';
+        echo '🔍 Checking rootless support...';
+        ./demo-rootless.sh;
+        echo '';
+        echo '💡 Try rootless commands:';
+        echo '  ./rt.sh --rootless create-container test';
+        echo '  ./rt.sh --rootless list-containers';
+        echo '';
+        exec /bin/bash
+      "
+
+networks:
+  rt-network:
+    driver: bridge
+    name: rt-development-network
 
 volumes:
   rt-tmp:
     driver: local
+    name: rt-containers-data
+  rt-rootless-data:
+    driver: local
+    name: rt-rootless-containers-data

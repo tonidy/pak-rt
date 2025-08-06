@@ -52,6 +52,9 @@ VERBOSE_MODE=${VERBOSE_MODE:-false}
 DEBUG_MODE=${DEBUG_MODE:-false}
 MONITORING_ENABLED=${MONITORING_ENABLED:-false}
 
+# Rootless mode support
+ROOTLESS_MODE=${ROOTLESS_MODE:-false}
+
 # Monitoring intervals (seconds)
 readonly RESOURCE_MONITOR_INTERVAL=2
 readonly NETWORK_MONITOR_INTERVAL=5
@@ -226,13 +229,104 @@ log_success() {
 }
 
 # =============================================================================
+# ROOTLESS MODE SUPPORT FUNCTIONS
+# =============================================================================
+
+# Check if rootless mode is supported on this system
+check_rootless_support() {
+    log_debug "Checking rootless container support" \
+              "Seperti RT memeriksa apakah bisa bekerja tanpa wewenang penuh"
+
+    local support_issues=()
+
+    # Check if user namespaces are enabled
+    if [[ ! -f /proc/sys/kernel/unprivileged_userns_clone ]]; then
+        support_issues+=("user_namespaces_not_available")
+    else
+        local userns_enabled=$(cat /proc/sys/kernel/unprivileged_userns_clone 2>/dev/null || echo "0")
+        if [[ "$userns_enabled" != "1" ]]; then
+            support_issues+=("user_namespaces_disabled")
+        fi
+    fi
+
+    # Check if newuidmap and newgidmap are available
+    if ! command -v newuidmap &> /dev/null; then
+        support_issues+=("newuidmap_missing")
+    fi
+
+    if ! command -v newgidmap &> /dev/null; then
+        support_issues+=("newgidmap_missing")
+    fi
+
+    # Check if user has subuid/subgid mappings
+    local current_user=$(id -un)
+    if [[ -f /etc/subuid ]] && ! grep -q "^$current_user:" /etc/subuid; then
+        support_issues+=("subuid_mapping_missing")
+    fi
+
+    if [[ -f /etc/subgid ]] && ! grep -q "^$current_user:" /etc/subgid; then
+        support_issues+=("subgid_mapping_missing")
+    fi
+
+    if [[ ${#support_issues[@]} -gt 0 ]]; then
+        log_warn "Rootless mode support issues detected: ${support_issues[*]}" \
+                 "Ditemukan masalah untuk mode tanpa wewenang penuh"
+        return 1
+    fi
+
+    log_success "Rootless mode is supported on this system" \
+                "Sistem mendukung mode tanpa wewenang penuh"
+    return 0
+}
+
+# Setup rootless environment
+setup_rootless_environment() {
+    log_info "Setting up rootless container environment" \
+             "Seperti RT menyiapkan lingkungan kerja dengan wewenang terbatas"
+
+    # Use user's home directory for containers in rootless mode
+    if [[ "$ROOTLESS_MODE" == "true" ]]; then
+        CONTAINERS_DIR="$HOME/.local/share/rt-containers"
+        BUSYBOX_PATH="$CONTAINERS_DIR/busybox"
+
+        # Create directories with user permissions
+        create_directory "$CONTAINERS_DIR" 755
+        create_directory "$(dirname "$BUSYBOX_PATH")" 755
+
+        log_info "Rootless containers directory: $CONTAINERS_DIR" \
+                 "Direktori rumah mode terbatas: $CONTAINERS_DIR"
+    fi
+
+    return 0
+}
+
+# Check if cgroups v2 is available for rootless
+check_rootless_cgroups() {
+    if [[ "$ROOTLESS_MODE" != "true" ]]; then
+        return 0
+    fi
+
+    # In rootless mode, we can only use cgroups v2 with systemd user session
+    if [[ -d "/sys/fs/cgroup/user.slice/user-$(id -u).slice" ]]; then
+        log_info "Rootless cgroups available via systemd user session" \
+                 "Pembatasan resource tersedia melalui sesi user"
+        return 0
+    else
+        log_warn "Rootless cgroups not available - resource limits will be disabled" \
+                 "Pembatasan resource tidak tersedia dalam mode terbatas"
+        return 1
+    fi
+}
+
+# =============================================================================
 # COMPREHENSIVE ERROR HANDLING AND RECOVERY SYSTEM
 # =============================================================================
 
 # Error tracking and recovery state
-declare -A ERROR_CONTEXT=()
-declare -A ROLLBACK_STACK=()
-declare -A RECOVERY_ACTIONS=()
+# Note: Using simple variables instead of associative arrays for macOS compatibility
+ERROR_CONTEXT_DATA=""
+ROLLBACK_STACK_DATA=""
+RECOVERY_ACTIONS_DATA=""
 CURRENT_OPERATION=""
 OPERATION_START_TIME=""
 
@@ -723,7 +817,7 @@ validate_system_state() {
     local validation_errors=()
     
     # Check basic requirements
-    if [[ $EUID -ne 0 ]]; then
+    if [[ $EUID -ne 0 && "$ROOTLESS_MODE" != "true" ]]; then
         validation_errors+=("insufficient_privileges")
     fi
     
@@ -845,8 +939,8 @@ check_enhanced_privileges() {
     log_debug "Checking enhanced privileges for operation: $operation" \
               "Seperti RT memeriksa wewenang untuk tugas: $operation"
     
-    # Check if running as root
-    if [[ $EUID -ne 0 ]]; then
+    # Check if running as root (skip in rootless mode)
+    if [[ $EUID -ne 0 && "$ROOTLESS_MODE" != "true" ]]; then
         log_error "Root privileges required for $operation" \
                   "Seperti RT memerlukan wewenang khusus untuk: $operation"
         return 1
@@ -1419,13 +1513,20 @@ validate_cpu_percentage() {
 
 # Check if running as root or with sufficient privileges (legacy function)
 check_privileges() {
+    # Check if rootless mode is enabled
+    if [[ "$ROOTLESS_MODE" == "true" ]]; then
+        log_info "Running in rootless mode - some features may be limited" \
+                 "Seperti RT yang bekerja dengan wewenang terbatas"
+        return 0
+    fi
+
     if [[ $EUID -ne 0 ]]; then
         log_error "This script requires root privileges for namespace and cgroup operations" \
                   "Seperti RT memerlukan wewenang khusus untuk mengatur kompleks perumahan"
-        log_info "Please run with: sudo $0 $*"
+        log_info "Please run with: sudo $0 $* OR set ROOTLESS_MODE=true for limited functionality"
         exit 1
     fi
-    
+
     # Perform enhanced privilege checking for critical operations
     check_enhanced_privileges "general" || exit 1
 }
@@ -2435,9 +2536,17 @@ show_main_help() {
     echo -e "${COLOR_PURPLE}├── $0 help debug    : Bantuan debugging${COLOR_RESET}"
     echo -e "${COLOR_PURPLE}└── $0 help analogy  : Penjelasan analogi perumahan${COLOR_RESET}"
     
+    echo -e "\n${COLOR_CYAN}🔧 OPSI GLOBAL:${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}├── --verbose  : Mode verbose dengan penjelasan detail${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}├── --debug    : Mode debug dengan informasi teknis${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}├── --monitor  : Aktifkan monitoring real-time${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}└── --rootless : Mode tanpa sudo (fitur terbatas)${COLOR_RESET}"
+
     echo -e "\n${COLOR_YELLOW}💡 CONTOH PENGGUNAAN CEPAT:${COLOR_RESET}"
-    echo -e "${COLOR_YELLOW}# Membuat rumah baru dengan nama 'webapp'${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}# Membuat rumah baru dengan nama 'webapp' (perlu sudo)${COLOR_RESET}"
     echo -e "${COLOR_YELLOW}sudo $0 create-container webapp --ram=512 --cpu=50${COLOR_RESET}"
+    echo -e "\n${COLOR_YELLOW}# Membuat rumah tanpa sudo (mode rootless)${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}$0 --rootless create-container webapp${COLOR_RESET}"
     echo -e "\n${COLOR_YELLOW}# Masuk ke rumah 'webapp'${COLOR_RESET}"
     echo -e "${COLOR_YELLOW}sudo $0 run-container webapp${COLOR_RESET}"
     echo -e "\n${COLOR_YELLOW}# Melihat semua rumah di kompleks${COLOR_RESET}"
@@ -4949,10 +5058,17 @@ create_cgroup_structure() {
     local container_name=$1
     local memory_mb=$2
     local cpu_percent=$3
-    
+
     log_step 1 "Creating cgroup structure for container: $container_name" \
               "Seperti RT yang menyiapkan sistem pembatasan listrik dan air untuk rumah baru"
-    
+
+    # Skip cgroups in rootless mode if not supported
+    if [[ "$ROOTLESS_MODE" == "true" ]] && ! check_rootless_cgroups; then
+        log_warn "Skipping cgroup setup in rootless mode - resource limits disabled" \
+                 "Melewati pengaturan pembatasan resource dalam mode terbatas"
+        return 0
+    fi
+
     # Validate inputs
     validate_memory_limit "$memory_mb" || return 1
     validate_cpu_percentage "$cpu_percent" || return 1
@@ -7265,6 +7381,12 @@ main() {
                 enable_monitoring_mode
                 shift
                 ;;
+            --rootless)
+                ROOTLESS_MODE=true
+                log_info "Rootless mode enabled" \
+                         "Seperti RT yang bekerja dengan wewenang terbatas"
+                shift
+                ;;
             *)
                 break
                 ;;
@@ -7274,6 +7396,16 @@ main() {
     # Update command after flag parsing
     command=${1:-""}
     
+    # Setup rootless environment if enabled
+    if [[ "$ROOTLESS_MODE" == "true" ]]; then
+        if ! check_rootless_support; then
+            log_error "Rootless mode is not supported on this system" \
+                      "Mode tanpa wewenang penuh tidak didukung sistem ini"
+            exit 1
+        fi
+        setup_rootless_environment
+    fi
+
     # Check dependencies and privileges for commands that need them
     case "$command" in
         create-container|run-container|delete-container|cleanup-all|test-network|create-test-network|cleanup-test-network|show-network|test-connectivity|monitor-network|debug-network|list-networks|monitor|show-topology|debug|recover-state|validate-system|emergency-cleanup|security-audit)
@@ -7281,7 +7413,7 @@ main() {
             check_privileges
             ;;
     esac
-    
+
     # Create base directories
     create_directory "$CONTAINERS_DIR"
     

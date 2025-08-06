@@ -19,10 +19,13 @@ RUN apt-get update && apt-get install -y \
     iptables \
     # Essential container tools
     busybox-static \
+    # User namespace support untuk rootless mode
+    uidmap \
     # Basic development tools
     bash \
     curl \
     git \
+    vim \
     # Development dan debugging tools
     strace \
     gdb \
@@ -31,6 +34,10 @@ RUN apt-get update && apt-get install -y \
     shellcheck \
     # JSON processing untuk container metadata
     jq \
+    sudo \
+    # System monitoring tools
+    htop \
+    tree \
     && rm -rf /var/lib/apt/lists/*
 
 # Create directories untuk container runtime
@@ -41,10 +48,19 @@ RUN mkdir -p /tmp/containers \
 # Setup proper permissions untuk development
 RUN chmod 755 /tmp/containers
 
+# Enable user namespaces untuk rootless mode
+RUN echo 'kernel.unprivileged_userns_clone=1' >> /etc/sysctl.conf
+
 # Create non-root user untuk development (optional)
 RUN useradd -m -s /bin/bash -u 1001 developer \
     && usermod -aG sudo developer \
     && echo "developer ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Setup subuid/subgid untuk rootless containers
+RUN echo "developer:100000:65536" >> /etc/subuid \
+    && echo "developer:100000:65536" >> /etc/subgid \
+    && echo "root:200000:65536" >> /etc/subuid \
+    && echo "root:200000:65536" >> /etc/subgid
 
 # Set working directory
 WORKDIR /workspace
