@@ -1,4 +1,4 @@
-# RT Container Runtime - Makefile untuk macOS Development
+# RT Container Runtime - Makefile for macOS/WSL Development
 # Requires Docker dan Docker Compose untuk Linux environment
 
 .PHONY: help setup dev test test-unit test-integration clean
@@ -66,7 +66,7 @@ dev: check-docker
 	@echo "🔧 Privileged mode enabled untuk namespace operations"
 	@docker-compose run --rm rt-dev
 
-# Run all tests dalam Linux container
+# Run all tests inside Linux container
 test: check-docker
 	@echo "🧪 Running all tests dalam Linux environment..."
 	@docker-compose run --rm rt-dev bash -c "cd /workspace && ./tests/run-all-tests.sh"
@@ -121,46 +121,14 @@ test-components: check-docker
 	@echo "🔧 Running component tests..."
 	@docker-compose run --rm rt-dev bash -c "cd /workspace && ./tests/busybox-tests.sh && ./tests/namespace-tests.sh && ./tests/cgroup-tests.sh && ./tests/network-tests.sh"
 
-# Run stress tests
-test-stress: check-docker
-	@echo "💪 Running stress tests..."
-	@docker-compose run --rm rt-dev bash -c "cd /workspace && ./tests/stress-tests.sh"
-
-# Run resource validation tests
-test-resources: check-docker
-	@echo "📊 Running resource validation tests..."
-	@docker-compose run --rm rt-dev bash -c "cd /workspace && ./tests/resource-validation-tests.sh"
-
-# Run cleanup verification tests
-test-cleanup: check-docker
-	@echo "🧹 Running cleanup verification tests..."
-	@docker-compose run --rm rt-dev bash -c "cd /workspace && ./tests/cleanup-verification-tests.sh"
-
-# Run specific component tests
-test-busybox: check-docker
-	@echo "📦 Running busybox tests..."
-	@docker-compose run --rm rt-dev bash -c "cd /workspace && ./tests/busybox-tests.sh"
-
-test-namespace: check-docker
-	@echo "🏠 Running namespace tests..."
-	@docker-compose run --rm rt-dev bash -c "cd /workspace && ./tests/namespace-tests.sh"
-
-test-cgroup: check-docker
-	@echo "⚡ Running cgroup tests..."
-	@docker-compose run --rm rt-dev bash -c "cd /workspace && ./tests/cgroup-tests.sh"
-
-test-network: check-docker
-	@echo "🌐 Running network tests..."
-	@docker-compose run --rm rt-dev bash -c "cd /workspace && ./tests/network-tests.sh"
-
-# Cleanup containers dan volumes
+# Cleanup containers and volumes
 clean: check-docker
 	@echo "🧹 Cleaning up development environment..."
 	@docker-compose down -v --remove-orphans
 	@docker system prune -f
 	@echo "✅ Cleanup complete!"
 
-# Demo scenarios untuk educational purposes
+# Demo scenarios for educational purposes
 demo: check-docker
 	@echo "🎬 Starting RT Container Runtime demo scenarios..."
 	@echo "📝 Available demos: basic-lifecycle, namespace-isolation, resource-management, container-networking, multi-container, educational-tour, all-demos"

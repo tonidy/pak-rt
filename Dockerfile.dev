@@ -1,47 +1,36 @@
 # RT Container Runtime - Development Environment
 # Ubuntu-based container dengan Linux tools untuk namespace dan cgroup operations
 
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install required packages untuk container runtime development
+# Install essential packages untuk container runtime development
 RUN apt-get update && apt-get install -y \
-    # Basic development tools
-    bash \
-    curl \
-    wget \
-    git \
-    vim \
-    nano \
-    tree \
-    htop \
-    # Network tools untuk container networking
-    iproute2 \
-    iputils-ping \
-    netcat \
-    bridge-utils \
-    iptables \
-    # System tools untuk namespace dan cgroup operations
+    # Core system tools untuk namespace dan cgroup operations
     util-linux \
     coreutils \
     procps \
     psmisc \
+    # Network tools untuk container networking
+    iproute2 \
+    iputils-ping \
+    iptables \
+    # Essential container tools
+    busybox-static \
+    # Basic development tools
+    bash \
+    curl \
+    git \
     # Development dan debugging tools
     strace \
-    ltrace \
     gdb \
-    valgrind \
     # Testing tools
     bats \
     shellcheck \
     # JSON processing untuk container metadata
     jq \
-    # Additional utilities
-    file \
-    lsof \
-    tcpdump \
     && rm -rf /var/lib/apt/lists/*
 
 # Create directories untuk container runtime
@@ -53,7 +42,7 @@ RUN mkdir -p /tmp/containers \
 RUN chmod 755 /tmp/containers
 
 # Create non-root user untuk development (optional)
-RUN useradd -m -s /bin/bash -u 1000 developer \
+RUN useradd -m -s /bin/bash -u 1001 developer \
     && usermod -aG sudo developer \
     && echo "developer ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
