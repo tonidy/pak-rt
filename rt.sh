@@ -919,6 +919,712 @@ declare -g NEXT_IP_OCTET=2
 
 # Get next available IP address in the container network
 get_next_container_ip() {
+    local base_ip="10.0.0"
+    local octet=$NEXT_IP_OCTET
+    
+    # Check if IP is already in use
+    while [[ -n "${CONTAINER_IPS["$base_ip.$octet"]:-}" ]]; do
+        ((octet++))
+        if [[ $octet -gt 254 ]]; then
+            log_error "No available IP addresses in container network" \
+                      "Seperti kompleks sudah penuh, tidak ada nomor rumah yang tersisa"
+            return 1
+        fi
+    done
+    
+    NEXT_IP_OCTET=$((octet + 1))
+    echo "$base_ip.$octet"
+}
+
+# =============================================================================
+# CONTAINER LIFECYCLE MANAGEMENT
+# =============================================================================
+
+# Container metadata structure and management
+save_container_metadata() {
+    local container_name=$1
+    local memory_mb=$2
+    local cpu_percent=$3
+    local ip_address=$4
+    local status=${5:-"created"}
+    
+    log_debug "Saving metadata for container: $container_name" \
+              "Seperti RT mencatat data lengkap rumah baru di buku administrasi"
+    
+    local metadata_file="$CONTAINERS_DIR/$container_name/config.json"
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    
+    # Create metadata JSON
+    cat > "$metadata_file" << EOF
+{
+  "name": "$container_name",
+  "created": "$timestamp",
+  "status": "$status",
+  "resources": {
+    "memory_mb": $memory_mb,
+    "cpu_percentage": $cpu_percent
+  },
+  "network": {
+    "ip_address": "$ip_address",
+    "veth_host": "veth-host-$container_name",
+    "veth_container": "veth-cont-$container_name"
+  },
+  "namespaces": {
+    "pid": "",
+    "net": "",
+    "mnt": "",
+    "uts": "",
+    "ipc": "",
+    "user": ""
+  },
+  "cgroups": {
+    "memory": "/sys/fs/cgroup/memory/container-$container_name",
+    "cpu": "/sys/fs/cgroup/cpu/container-$container_name"
+  },
+  "pid": 0,
+  "rootfs": "$CONTAINERS_DIR/$container_name/rootfs",
+  "logs": "$CONTAINERS_DIR/$container_name/logs"
+}
+EOF
+    
+    log_debug "Container metadata saved successfully" \
+              "Data rumah berhasil dicatat dalam administrasi RT"
+    return 0
+}
+
+# Load container metadata
+load_container_metadata() {
+    local container_name=$1
+    local metadata_file="$CONTAINERS_DIR/$container_name/config.json"
+    
+    if [[ ! -f "$metadata_file" ]]; then
+        log_error "Container metadata not found: $container_name" \
+                  "Data rumah tidak ditemukan dalam catatan RT"
+        return 1
+    fi
+    
+    log_debug "Loading metadata for container: $container_name" \
+              "Seperti RT membaca data rumah dari buku administrasi"
+    
+    # Export metadata as environment variables for easy access
+    eval "$(cat "$metadata_file" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+print(f'CONTAINER_NAME=\"{data[\"name\"]}\"')
+print(f'CONTAINER_STATUS=\"{data[\"status\"]}\"')
+print(f'CONTAINER_MEMORY_MB={data[\"resources\"][\"memory_mb\"]}')
+print(f'CONTAINER_CPU_PERCENT={data[\"resources\"][\"cpu_percentage\"]}')
+print(f'CONTAINER_IP=\"{data[\"network\"][\"ip_address\"]}\"')
+print(f'CONTAINER_PID={data[\"pid\"]}')
+print(f'CONTAINER_ROOTFS=\"{data[\"rootfs\"]}\"')
+print(f'CONTAINER_LOGS=\"{data[\"logs\"]}\"')
+" 2>/dev/null || echo 'CONTAINER_LOAD_ERROR=1')"
+    
+    if [[ -n "${CONTAINER_LOAD_ERROR:-}" ]]; then
+        log_error "Failed to parse container metadata" \
+                  "Gagal membaca data rumah dari catatan RT"
+        return 1
+    fi
+    
+    log_debug "Container metadata loaded successfully" \
+              "Data rumah berhasil dimuat dari administrasi RT"
+    return 0
+}
+
+# Update container status in metadata
+update_container_status() {
+    local container_name=$1
+    local new_status=$2
+    local pid=${3:-0}
+    
+    local metadata_file="$CONTAINERS_DIR/$container_name/config.json"
+    
+    if [[ ! -f "$metadata_file" ]]; then
+        log_error "Cannot update status: container metadata not found" \
+                  "Tidak bisa update status: data rumah tidak ditemukan"
+        return 1
+    fi
+    
+    log_debug "Updating container status: $container_name -> $new_status" \
+              "Seperti RT mengupdate status rumah di buku administrasi"
+    
+    # Use python to update JSON (more reliable than sed for JSON)
+    python3 -c "
+import json
+with open('$metadata_file', 'r') as f:
+    data = json.load(f)
+data['status'] = '$new_status'
+data['pid'] = $pid
+with open('$metadata_file', 'w') as f:
+    json.dump(data, f, indent=2)
+" 2>/dev/null || {
+        log_error "Failed to update container status" \
+                  "Gagal mengupdate status rumah di catatan RT"
+        return 1
+    }
+    
+    log_debug "Container status updated successfully" \
+              "Status rumah berhasil diupdate di administrasi RT"
+    return 0
+}
+
+# Create container with all components integrated
+create_container() {
+    local container_name=$1
+    local memory_mb=${2:-$DEFAULT_MEMORY_MB}
+    local cpu_percent=${3:-$DEFAULT_CPU_PERCENT}
+    local hostname=${4:-$container_name}
+    
+    log_step 1 "Creating container: $container_name" \
+              "Seperti RT membangun rumah baru lengkap dengan semua fasilitas"
+    
+    # Validate inputs
+    if ! validate_container_name "$container_name"; then
+        return 1
+    fi
+    
+    if ! validate_memory_limit "$memory_mb"; then
+        return 1
+    fi
+    
+    if ! validate_cpu_percentage "$cpu_percent"; then
+        return 1
+    fi
+    
+    # Check if container already exists
+    if container_exists "$container_name"; then
+        log_error "Container already exists: $container_name" \
+                  "Rumah dengan nama tersebut sudah ada di kompleks"
+        return 1
+    fi
+    
+    # Create container directory structure
+    log_info "Creating container directory structure" \
+             "Seperti menyiapkan fondasi dan struktur rumah baru"
+    
+    local container_dir="$CONTAINERS_DIR/$container_name"
+    create_directory "$container_dir"
+    create_directory "$container_dir/rootfs"
+    create_directory "$container_dir/logs"
+    create_directory "$container_dir/namespaces"
+    
+    # Get IP address for container
+    local container_ip
+    if ! container_ip=$(get_next_container_ip); then
+        log_error "Failed to allocate IP address for container" \
+                  "Gagal mendapatkan nomor telepon rumah"
+        return 1
+    fi
+    
+    # Save initial metadata
+    if ! save_container_metadata "$container_name" "$memory_mb" "$cpu_percent" "$container_ip" "creating"; then
+        log_error "Failed to save container metadata" \
+                  "Gagal mencatat data rumah di administrasi RT"
+        return 1
+    fi
+    
+    # Reserve IP address
+    CONTAINER_IPS["$container_ip"]="$container_name"
+    
+    # Setup busybox for the container
+    log_info "Setting up busybox for container" \
+             "Seperti menyiapkan peralatan dasar untuk rumah baru"
+    
+    if ! setup_busybox "$container_name"; then
+        log_error "Failed to setup busybox for container" \
+                  "Gagal menyiapkan peralatan dasar rumah"
+        cleanup_failed_container "$container_name"
+        return 1
+    fi
+    
+    # Setup namespaces
+    log_info "Setting up namespaces for container" \
+             "Seperti mengatur sistem internal rumah (penomoran, rak buku, nama, dll)"
+    
+    if ! setup_container_namespaces "$container_name" "$hostname"; then
+        log_error "Failed to setup namespaces for container" \
+                  "Gagal mengatur sistem internal rumah"
+        cleanup_failed_container "$container_name"
+        return 1
+    fi
+    
+    # Setup network namespace
+    log_info "Setting up network for container" \
+             "Seperti memasang sambungan telepon rumah"
+    
+    if ! create_container_network "$container_name" "$container_ip"; then
+        log_error "Failed to setup network for container" \
+                  "Gagal memasang sambungan telepon rumah"
+        cleanup_failed_container "$container_name"
+        return 1
+    fi
+    
+    # Setup cgroups for resource limiting
+    log_info "Setting up resource limits for container" \
+             "Seperti mengatur pembatasan listrik dan air rumah"
+    
+    if ! create_container_cgroup "$container_name" "$memory_mb" "$cpu_percent"; then
+        log_error "Failed to setup resource limits for container" \
+                  "Gagal mengatur pembatasan listrik dan air rumah"
+        cleanup_failed_container "$container_name"
+        return 1
+    fi
+    
+    # Update status to created
+    if ! update_container_status "$container_name" "created"; then
+        log_error "Failed to update container status" \
+                  "Gagal mengupdate status rumah"
+        cleanup_failed_container "$container_name"
+        return 1
+    fi
+    
+    log_success "Container created successfully: $container_name" \
+                "Rumah '$container_name' berhasil dibangun lengkap dengan semua fasilitas"
+    
+    # Show container information
+    echo ""
+    echo "=== Container Information ==="
+    echo "Name: $container_name"
+    echo "Memory Limit: ${memory_mb}MB"
+    echo "CPU Limit: ${cpu_percent}%"
+    echo "IP Address: $container_ip"
+    echo "Hostname: $hostname"
+    echo "Status: created"
+    echo "============================"
+    echo ""
+    
+    log_info "Container is ready to be started with: ./rt.sh run-container $container_name" \
+             "Rumah siap ditempati dengan perintah: ./rt.sh run-container $container_name"
+    
+    return 0
+}
+
+# Start container process with busybox integration
+start_container_process() {
+    local container_name=$1
+    local command=${2:-"sh"}
+    local interactive=${3:-true}
+    
+    log_step 1 "Starting container process: $container_name" \
+              "Seperti menghidupkan rumah dan memulai kehidupan keluarga"
+    
+    # Load container metadata
+    if ! load_container_metadata "$container_name"; then
+        return 1
+    fi
+    
+    # Check if container is already running
+    if container_is_running "$container_name"; then
+        log_error "Container is already running: $container_name" \
+                  "Rumah sudah dihuni dan aktif"
+        return 1
+    fi
+    
+    # Prepare container environment
+    local container_rootfs="$CONTAINER_ROOTFS"
+    local container_logs="$CONTAINER_LOGS"
+    local log_file="$container_logs/container.log"
+    local pid_file="$CONTAINERS_DIR/$container_name/container.pid"
+    
+    # Create log file
+    create_directory "$container_logs"
+    touch "$log_file"
+    
+    log_info "Preparing container environment" \
+             "Seperti menyiapkan rumah sebelum keluarga pindah masuk"
+    
+    # Mount essential filesystems in the container
+    if ! setup_container_mounts "$container_name"; then
+        log_error "Failed to setup container mounts" \
+                  "Gagal menyiapkan sistem file rumah"
+        return 1
+    fi
+    
+    # Apply cgroup limits
+    log_info "Applying resource limits" \
+             "Seperti mengaktifkan pembatasan listrik dan air rumah"
+    
+    # Start the container process in all namespaces
+    log_info "Starting container with busybox" \
+             "Seperti keluarga mulai menempati rumah dengan Ayah sebagai kepala keluarga (PID 1)"
+    
+    # Build unshare command with all namespaces
+    local unshare_cmd="unshare"
+    unshare_cmd+=" --pid --fork"           # PID namespace with fork
+    unshare_cmd+=" --mount"                # Mount namespace
+    unshare_cmd+=" --uts"                  # UTS namespace
+    unshare_cmd+=" --ipc"                  # IPC namespace
+    unshare_cmd+=" --net"                  # Network namespace
+    unshare_cmd+=" --user --map-root-user" # User namespace with root mapping
+    
+    # Create container startup script
+    local startup_script="$CONTAINERS_DIR/$container_name/startup.sh"
+    cat > "$startup_script" << EOF
+#!/bin/bash
+set -e
+
+# This script runs inside the container namespaces
+# It sets up the container environment and starts busybox
+
+# Set hostname
+hostname "$hostname" 2>/dev/null || true
+
+# Mount essential filesystems
+mount -t proc proc /proc 2>/dev/null || true
+mount -t sysfs sysfs /sys 2>/dev/null || true
+mount -t tmpfs tmpfs /tmp 2>/dev/null || true
+
+# Create essential device nodes
+mknod -m 666 /dev/null c 1 3 2>/dev/null || true
+mknod -m 666 /dev/zero c 1 5 2>/dev/null || true
+mknod -m 644 /dev/random c 1 8 2>/dev/null || true
+mknod -m 644 /dev/urandom c 1 9 2>/dev/null || true
+
+# Change to container root
+cd /
+
+# Set environment variables
+export PATH="/bin:/sbin:/usr/bin:/usr/sbin"
+export HOME="/root"
+export USER="root"
+export SHELL="/bin/sh"
+export TERM="\${TERM:-xterm}"
+
+# Start busybox shell or specified command
+if [[ "$interactive" == "true" ]]; then
+    echo "🏠 Welcome to container: $container_name"
+    echo "📍 IP Address: $CONTAINER_IP"
+    echo "💾 Memory Limit: ${CONTAINER_MEMORY_MB}MB"
+    echo "⚡ CPU Limit: ${CONTAINER_CPU_PERCENT}%"
+    echo "🏘️  Analoginya: Selamat datang di rumah Anda di kompleks RT!"
+    echo ""
+    exec /bin/busybox $command
+else
+    exec /bin/busybox $command
+fi
+EOF
+    
+    chmod +x "$startup_script"
+    
+    # Start container process
+    log_info "Launching container process" \
+             "Seperti keluarga resmi menempati rumah baru"
+    
+    # Use setsid to create new session and avoid terminal issues
+    if [[ "$interactive" == "true" ]]; then
+        # Interactive mode - run in foreground
+        $unshare_cmd chroot "$container_rootfs" /startup.sh &
+        local container_pid=$!
+    else
+        # Non-interactive mode - run in background
+        $unshare_cmd chroot "$container_rootfs" /startup.sh > "$log_file" 2>&1 &
+        local container_pid=$!
+    fi
+    
+    # Save container PID
+    echo "$container_pid" > "$pid_file"
+    
+    # Add process to cgroups
+    if ! add_process_to_container_cgroup "$container_name" "$container_pid"; then
+        log_error "Failed to add process to cgroups" \
+                  "Gagal menerapkan pembatasan listrik dan air"
+        kill "$container_pid" 2>/dev/null || true
+        return 1
+    fi
+    
+    # Update container status
+    if ! update_container_status "$container_name" "running" "$container_pid"; then
+        log_error "Failed to update container status" \
+                  "Gagal mengupdate status rumah"
+        kill "$container_pid" 2>/dev/null || true
+        return 1
+    fi
+    
+    # Wait a moment to ensure container started properly
+    sleep 1
+    
+    if ! kill -0 "$container_pid" 2>/dev/null; then
+        log_error "Container process failed to start" \
+                  "Proses rumah gagal dimulai"
+        update_container_status "$container_name" "failed" 0
+        return 1
+    fi
+    
+    log_success "Container started successfully: $container_name (PID: $container_pid)" \
+                "Rumah '$container_name' berhasil dihuni keluarga dengan Ayah sebagai kepala keluarga"
+    
+    if [[ "$interactive" == "true" ]]; then
+        # Wait for container process to finish
+        wait "$container_pid"
+        local exit_code=$?
+        
+        # Update status when container exits
+        update_container_status "$container_name" "stopped" 0
+        
+        log_info "Container exited with code: $exit_code" \
+                 "Keluarga selesai menggunakan rumah dengan kode: $exit_code"
+        
+        return $exit_code
+    else
+        log_info "Container running in background (PID: $container_pid)" \
+                 "Rumah aktif di latar belakang dengan kepala keluarga PID: $container_pid"
+        return 0
+    fi
+}
+
+# Setup container mounts (called inside container startup)
+setup_container_mounts() {
+    local container_name=$1
+    local container_rootfs="$CONTAINERS_DIR/$container_name/rootfs"
+    
+    log_debug "Setting up container mounts for: $container_name" \
+              "Seperti memasang rak-rak dan fasilitas di dalam rumah"
+    
+    # Ensure mount points exist
+    create_directory "$container_rootfs/proc"
+    create_directory "$container_rootfs/sys"
+    create_directory "$container_rootfs/dev"
+    create_directory "$container_rootfs/tmp"
+    
+    # Copy startup script into container
+    cp "$CONTAINERS_DIR/$container_name/startup.sh" "$container_rootfs/startup.sh"
+    chmod +x "$container_rootfs/startup.sh"
+    
+    return 0
+}
+
+# Monitor container process
+monitor_container_process() {
+    local container_name=$1
+    local show_logs=${2:-false}
+    
+    log_info "Monitoring container: $container_name" \
+             "Seperti RT memantau aktivitas rumah"
+    
+    # Load container metadata
+    if ! load_container_metadata "$container_name"; then
+        return 1
+    fi
+    
+    local pid_file="$CONTAINERS_DIR/$container_name/container.pid"
+    local log_file="$CONTAINER_LOGS/container.log"
+    
+    if [[ ! -f "$pid_file" ]]; then
+        log_error "Container PID file not found" \
+                  "File PID rumah tidak ditemukan"
+        return 1
+    fi
+    
+    local container_pid=$(cat "$pid_file")
+    
+    # Check if process is running
+    if ! kill -0 "$container_pid" 2>/dev/null; then
+        log_warn "Container process not running (PID: $container_pid)" \
+                 "Proses rumah tidak aktif"
+        update_container_status "$container_name" "stopped" 0
+        return 1
+    fi
+    
+    # Show process information
+    echo "=== Container Process Information ==="
+    echo "Container: $container_name"
+    echo "PID: $container_pid"
+    echo "Status: $CONTAINER_STATUS"
+    echo "Memory Limit: ${CONTAINER_MEMORY_MB}MB"
+    echo "CPU Limit: ${CONTAINER_CPU_PERCENT}%"
+    echo "IP Address: $CONTAINER_IP"
+    
+    # Show resource usage
+    if [[ -f "/proc/$container_pid/status" ]]; then
+        local memory_kb=$(grep "VmRSS" "/proc/$container_pid/status" | awk '{print $2}')
+        local memory_mb=$((memory_kb / 1024))
+        echo "Current Memory Usage: ${memory_mb}MB"
+    fi
+    
+    echo "====================================="
+    
+    # Show logs if requested
+    if [[ "$show_logs" == "true" ]] && [[ -f "$log_file" ]]; then
+        echo ""
+        echo "=== Container Logs ==="
+        tail -20 "$log_file"
+        echo "======================"
+    fi
+    
+    return 0
+}
+
+# Delete container with comprehensive cleanup
+delete_container() {
+    local container_name=$1
+    local force=${2:-false}
+    
+    log_step 1 "Deleting container: $container_name" \
+              "Seperti RT membongkar rumah dan membersihkan semua fasilitas"
+    
+    # Validate container name
+    if ! validate_container_name "$container_name"; then
+        return 1
+    fi
+    
+    # Check if container exists
+    if ! container_exists "$container_name"; then
+        log_error "Container does not exist: $container_name" \
+                  "Rumah dengan nama tersebut tidak ada di kompleks"
+        return 1
+    fi
+    
+    # Load container metadata
+    load_container_metadata "$container_name" || true
+    
+    # Stop container if running
+    if container_is_running "$container_name"; then
+        if [[ "$force" == "true" ]]; then
+            log_info "Force stopping running container" \
+                     "Seperti RT menghentikan paksa aktivitas rumah"
+            stop_container_force "$container_name"
+        else
+            log_error "Container is still running. Use --force to stop and delete" \
+                      "Rumah masih aktif. Gunakan --force untuk menghentikan dan menghapus"
+            return 1
+        fi
+    fi
+    
+    # Cleanup network
+    log_info "Cleaning up container network" \
+             "Seperti memutus sambungan telepon rumah"
+    
+    cleanup_container_network "$container_name" || true
+    
+    # Cleanup cgroups
+    log_info "Cleaning up resource limits" \
+             "Seperti menghapus pembatasan listrik dan air rumah"
+    
+    cleanup_container_cgroup "$container_name" || true
+    
+    # Cleanup namespaces (they should be cleaned up automatically when process dies)
+    log_info "Cleaning up namespaces" \
+             "Seperti menghapus sistem internal rumah"
+    
+    cleanup_container_namespaces "$container_name" || true
+    
+    # Remove IP address reservation
+    if [[ -n "${CONTAINER_IP:-}" ]]; then
+        unset CONTAINER_IPS["$CONTAINER_IP"]
+        log_debug "Released IP address: $CONTAINER_IP" \
+                  "Nomor telepon rumah dikembalikan ke pool"
+    fi
+    
+    # Remove container directory
+    log_info "Removing container files" \
+             "Seperti membersihkan sisa-sisa rumah"
+    
+    local container_dir="$CONTAINERS_DIR/$container_name"
+    if [[ -d "$container_dir" ]]; then
+        # Unmount any remaining mounts
+        umount "$container_dir/rootfs/proc" 2>/dev/null || true
+        umount "$container_dir/rootfs/sys" 2>/dev/null || true
+        umount "$container_dir/rootfs/dev" 2>/dev/null || true
+        umount "$container_dir/rootfs/tmp" 2>/dev/null || true
+        
+        # Remove directory
+        rm -rf "$container_dir"
+    fi
+    
+    # Remove from active tracking
+    unset ACTIVE_NAMESPACES["$container_name"]
+    unset ACTIVE_NETWORKS["$container_name"]
+    
+    log_success "Container deleted successfully: $container_name" \
+                "Rumah '$container_name' berhasil dibongkar dan dibersihkan dari kompleks"
+    
+    return 0
+}
+
+# Stop container forcefully
+stop_container_force() {
+    local container_name=$1
+    
+    log_info "Force stopping container: $container_name" \
+             "Seperti RT menghentikan paksa aktivitas rumah"
+    
+    local pid_file="$CONTAINERS_DIR/$container_name/container.pid"
+    
+    if [[ -f "$pid_file" ]]; then
+        local container_pid=$(cat "$pid_file")
+        
+        if kill -0 "$container_pid" 2>/dev/null; then
+            # Try graceful shutdown first
+            log_debug "Sending SIGTERM to container process" \
+                      "Memberikan peringatan untuk menghentikan aktivitas rumah"
+            kill -TERM "$container_pid" 2>/dev/null || true
+            
+            # Wait a few seconds
+            sleep 3
+            
+            # Force kill if still running
+            if kill -0 "$container_pid" 2>/dev/null; then
+                log_debug "Sending SIGKILL to container process" \
+                          "Menghentikan paksa aktivitas rumah"
+                kill -KILL "$container_pid" 2>/dev/null || true
+            fi
+            
+            # Wait for process to die
+            local count=0
+            while kill -0 "$container_pid" 2>/dev/null && [[ $count -lt 10 ]]; do
+                sleep 1
+                ((count++))
+            done
+        fi
+        
+        # Remove PID file
+        rm -f "$pid_file"
+    fi
+    
+    # Update status
+    update_container_status "$container_name" "stopped" 0 || true
+    
+    return 0
+}
+
+# Cleanup failed container creation
+cleanup_failed_container() {
+    local container_name=$1
+    
+    log_warn "Cleaning up failed container creation: $container_name" \
+             "Seperti RT membersihkan sisa pembangunan rumah yang gagal"
+    
+    # Stop any running processes
+    stop_container_force "$container_name" 2>/dev/null || true
+    
+    # Cleanup network
+    cleanup_container_network "$container_name" 2>/dev/null || true
+    
+    # Cleanup cgroups
+    cleanup_container_cgroup "$container_name" 2>/dev/null || true
+    
+    # Remove IP reservation
+    if [[ -n "${CONTAINER_IPS:-}" ]]; then
+        for ip in "${!CONTAINER_IPS[@]}"; do
+            if [[ "${CONTAINER_IPS[$ip]}" == "$container_name" ]]; then
+                unset CONTAINER_IPS["$ip"]
+                break
+            fi
+        done
+    fi
+    
+    # Remove container directory
+    local container_dir="$CONTAINERS_DIR/$container_name"
+    if [[ -d "$container_dir" ]]; then
+        rm -rf "$container_dir" 2>/dev/null || true
+    fi
+    
+    # Remove from tracking
+    unset ACTIVE_NAMESPACES["$container_name"] 2>/dev/null || true
+    unset ACTIVE_NETWORKS["$container_name"] 2>/dev/null || true
+    
+    return 0
+}container_ip() {
     local ip="10.0.0.$NEXT_IP_OCTET"
     ((NEXT_IP_OCTET++))
     echo "$ip"
@@ -1242,6 +1948,16 @@ cleanup_container_network() {
     
     log_success "Network cleanup completed for container: $container_name" \
                 "Sistem telepon rumah berhasil dibersihkan"
+    
+    return 0
+}
+
+# Wrapper function for container lifecycle management
+create_container_network() {
+    local container_name=$1
+    local container_ip=$2
+    
+    setup_container_network "$container_name" "$container_ip"
     
     return 0
 }
@@ -2092,6 +2808,58 @@ apply_mount_namespace() {
     fi
     
     # Create and mount /sys
+    if ! mount -t sysfs sysfs "$container_rootfs/sys"; then
+        log_warn "Failed to mount /sys, container may have limited functionality" \
+                 "Gagal memasang sistem kontrol rumah"
+    else
+        log_debug "Mounted /sys in container" "Sistem kontrol rumah terpasang"
+    fi
+    
+    # Create and mount /dev/pts for terminal support
+    if [[ -d "$container_rootfs/dev/pts" ]]; then
+        if ! mount -t devpts devpts "$container_rootfs/dev/pts"; then
+            log_warn "Failed to mount /dev/pts, terminal may not work properly" \
+                     "Gagal memasang sistem terminal rumah"
+        else
+            log_debug "Mounted /dev/pts in container" "Sistem terminal rumah terpasang"
+        fi
+    fi
+    
+    # Mount tmpfs on /tmp for temporary files
+    if ! mount -t tmpfs tmpfs "$container_rootfs/tmp"; then
+        log_warn "Failed to mount tmpfs on /tmp" \
+                 "Gagal memasang ruang sementara rumah"
+    else
+        log_debug "Mounted tmpfs on /tmp" "Ruang sementara rumah terpasang"
+    fi
+    
+    log_success "Mount namespace applied successfully" \
+                "Semua rak buku dan perabotan rumah berhasil dipasang"
+    
+    return 0
+}
+
+# Wrapper functions for container lifecycle management
+create_container_cgroup() {
+    local container_name=$1
+    local memory_mb=$2
+    local cpu_percent=$3
+    
+    setup_container_cgroups "$container_name" "$memory_mb" "$cpu_percent"
+}
+
+add_process_to_container_cgroup() {
+    local container_name=$1
+    local pid=$2
+    
+    assign_process_to_cgroups "$container_name" "$pid"
+}
+
+cleanup_container_cgroup() {
+    local container_name=$1
+    
+    cleanup_container_cgroups "$container_name"
+}
     if ! mount -t sysfs sysfs "$container_rootfs/sys"; then
         log_warn "Failed to mount /sys, container may have limited functionality" \
                  "Gagal memasang sistem kontrol rumah"
