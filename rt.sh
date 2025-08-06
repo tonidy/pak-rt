@@ -957,12 +957,20 @@ check_enhanced_privileges() {
         return 0
     fi
 
+    # If running as root, log success and continue
+    if [[ $EUID -eq 0 ]]; then
+        log_debug "Running with root privileges for operation: $operation" \
+                  "Berjalan dengan wewenang root untuk operasi: $operation"
+    fi
+
     # Check specific capabilities based on operation
     case "$operation" in
         "namespace_operations")
             if ! check_capability "CAP_SYS_ADMIN"; then
                 log_error "CAP_SYS_ADMIN capability required for namespace operations" \
                           "Diperlukan izin khusus untuk mengelola namespace"
+                log_info "Try running with: sudo $0 or enable rootless mode with ROOTLESS_MODE=true" \
+                         "Coba jalankan dengan: sudo $0 atau aktifkan mode rootless"
                 return 1
             fi
             ;;
@@ -970,6 +978,8 @@ check_enhanced_privileges() {
             if ! check_capability "CAP_NET_ADMIN"; then
                 log_error "CAP_NET_ADMIN capability required for network operations" \
                           "Diperlukan izin khusus untuk mengelola jaringan"
+                log_info "Try running with: sudo $0 or enable rootless mode with ROOTLESS_MODE=true" \
+                         "Coba jalankan dengan: sudo $0 atau aktifkan mode rootless"
                 return 1
             fi
             ;;
@@ -977,6 +987,8 @@ check_enhanced_privileges() {
             if [[ ! -w "$CGROUP_ROOT" ]]; then
                 log_error "Write access to cgroup filesystem required" \
                           "Diperlukan akses tulis ke sistem cgroup"
+                log_info "Try running with: sudo $0" \
+                         "Coba jalankan dengan: sudo $0"
                 return 1
             fi
             ;;
@@ -988,16 +1000,34 @@ check_enhanced_privileges() {
 # Check specific Linux capabilities
 check_capability() {
     local capability=$1
-    
+
+    # In rootless mode, skip capability checks
+    if [[ "$ROOTLESS_MODE" == "true" ]]; then
+        log_debug "Skipping capability check in rootless mode: $capability" \
+                  "Melewati pemeriksaan kapabilitas dalam mode rootless"
+        return 0
+    fi
+
+    # If running as root, assume capabilities are available
+    if [[ $EUID -eq 0 ]]; then
+        log_debug "Running as root, assuming capability available: $capability" \
+                  "Berjalan sebagai root, menganggap kapabilitas tersedia"
+        return 0
+    fi
+
     # Check if capability is available (simplified check)
     if command -v capsh &> /dev/null; then
         if capsh --print | grep -q "$capability"; then
             return 0
         else
+            log_debug "Capability not found via capsh: $capability" \
+                      "Kapabilitas tidak ditemukan melalui capsh"
             return 1
         fi
     else
         # Fallback: assume capability is available if running as root
+        log_debug "capsh not available, using root check for capability: $capability" \
+                  "capsh tidak tersedia, menggunakan pemeriksaan root"
         [[ $EUID -eq 0 ]]
     fi
 }
@@ -5769,28 +5799,25 @@ create_container_cgroup() {
     local container_name=$1
     local memory_mb=$2
     local cpu_percent=$3
-    
+
     setup_container_cgroups "$container_name" "$memory_mb" "$cpu_percent"
+    return $?
 }
 
 add_process_to_container_cgroup() {
     local container_name=$1
     local pid=$2
-    
+
     assign_process_to_cgroups "$container_name" "$pid"
+    return $?
 }
 
 cleanup_container_cgroup() {
     local container_name=$1
-    
+
     cleanup_container_cgroups "$container_name"
+    return $?
 }
-    if ! mount -t sysfs sysfs "$container_rootfs/sys"; then
-        log_warn "Failed to mount /sys, container may have limited functionality" \
-                 "Gagal memasang sistem kontrol rumah"
-    else
-        log_debug "Mounted /sys in container" "Sistem kontrol rumah terpasang"
-    fi
     
     # Create basic device nodes
     if [[ ! -e "$container_rootfs/dev/null" ]]; then
@@ -6623,9 +6650,27 @@ cmd_create_container() {
         cleanup_container_resources "$container_name"
         return 1
     fi
-    
+
+    # Allocate IP address for container
+    log_info "Allocating IP address for container" \
+             "Seperti RT mengalokasikan nomor telepon untuk rumah"
+
+    local container_ip
+    if ! container_ip=$(get_next_container_ip); then
+        log_error "Failed to allocate IP address for container" \
+                  "Gagal mendapatkan nomor telepon rumah"
+        cleanup_container_resources "$container_name"
+        return 1
+    fi
+
+    log_info "Allocated IP address: $container_ip" \
+             "Nomor telepon yang dialokasikan: $container_ip"
+
+    # Reserve IP address
+    set_container_ip "$container_name" "$container_ip"
+
     # Setup network namespace
-    if ! create_container_network "$container_name"; then
+    if ! create_container_network "$container_name" "$container_ip"; then
         log_error "Failed to setup network for container: $container_name" \
                   "Gagal menyiapkan sambungan telepon untuk rumah '$container_name'"
         cleanup_container_resources "$container_name"
