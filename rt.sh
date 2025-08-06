@@ -16,9 +16,9 @@ readonly SCRIPT_NAME="RT Container Runtime"
 readonly SCRIPT_VERSION="1.0"
 readonly SCRIPT_AUTHOR="Container Learning Project"
 
-# System paths and directories
-readonly CONTAINERS_DIR="/tmp/containers"
-readonly BUSYBOX_PATH="/tmp/containers/busybox"
+# System paths and directories (will be set based on rootless mode)
+CONTAINERS_DIR="/tmp/containers"
+BUSYBOX_PATH="/tmp/containers/busybox"
 readonly CGROUP_ROOT="/sys/fs/cgroup"
 
 # Network configuration
@@ -54,6 +54,14 @@ MONITORING_ENABLED=${MONITORING_ENABLED:-false}
 
 # Rootless mode support
 ROOTLESS_MODE=${ROOTLESS_MODE:-false}
+
+# Initialize paths based on rootless mode
+init_paths() {
+    if [[ "$ROOTLESS_MODE" == "true" ]]; then
+        CONTAINERS_DIR="$HOME/.local/share/rt-containers"
+        BUSYBOX_PATH="$CONTAINERS_DIR/busybox"
+    fi
+}
 
 # Monitoring intervals (seconds)
 readonly RESOURCE_MONITOR_INTERVAL=2
@@ -284,12 +292,8 @@ setup_rootless_environment() {
     log_info "Setting up rootless container environment" \
              "Seperti RT menyiapkan lingkungan kerja dengan wewenang terbatas"
 
-    # Use user's home directory for containers in rootless mode
+    # Create directories with user permissions in rootless mode
     if [[ "$ROOTLESS_MODE" == "true" ]]; then
-        CONTAINERS_DIR="$HOME/.local/share/rt-containers"
-        BUSYBOX_PATH="$CONTAINERS_DIR/busybox"
-
-        # Create directories with user permissions
         create_directory "$CONTAINERS_DIR" 755
         create_directory "$(dirname "$BUSYBOX_PATH")" 755
 
@@ -935,17 +939,24 @@ sanitize_file_path() {
 # Enhanced privilege checking with detailed validation
 check_enhanced_privileges() {
     local operation=${1:-"general"}
-    
+
     log_debug "Checking enhanced privileges for operation: $operation" \
               "Seperti RT memeriksa wewenang untuk tugas: $operation"
-    
+
     # Check if running as root (skip in rootless mode)
     if [[ $EUID -ne 0 && "$ROOTLESS_MODE" != "true" ]]; then
         log_error "Root privileges required for $operation" \
                   "Seperti RT memerlukan wewenang khusus untuk: $operation"
         return 1
     fi
-    
+
+    # Skip capability checks in rootless mode
+    if [[ "$ROOTLESS_MODE" == "true" ]]; then
+        log_debug "Skipping capability checks in rootless mode" \
+                  "Melewati pemeriksaan kapabilitas dalam mode rootless"
+        return 0
+    fi
+
     # Check specific capabilities based on operation
     case "$operation" in
         "namespace_operations")
@@ -970,7 +981,7 @@ check_enhanced_privileges() {
             fi
             ;;
     esac
-    
+
     return 0
 }
 
@@ -7383,6 +7394,7 @@ main() {
                 ;;
             --rootless)
                 ROOTLESS_MODE=true
+                init_paths  # Initialize paths for rootless mode
                 log_info "Rootless mode enabled" \
                          "Seperti RT yang bekerja dengan wewenang terbatas"
                 shift
