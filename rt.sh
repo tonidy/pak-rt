@@ -6581,7 +6581,7 @@ cmd_create_container() {
     fi
     
     # Create cgroups for resource management
-    if ! create_container_cgroups "$container_name" "$memory_mb" "$cpu_percent"; then
+    if ! create_container_cgroup "$container_name" "$memory_mb" "$cpu_percent"; then
         log_error "Failed to create cgroups for container: $container_name" \
                   "Gagal mengatur pembatasan listrik dan air untuk rumah '$container_name'"
         cleanup_container_resources "$container_name"
