@@ -347,21 +347,34 @@ readonly ERROR_DEPENDENCY=7
 RECOVERY_IN_PROGRESS=false
 PARTIAL_CLEANUP_NEEDED=false
 
+# Helper function to extract data from error context string
+get_error_context_value() {
+    local key=$1
+    local default_value=${2:-""}
+
+    if [[ -n "$ERROR_CONTEXT_DATA" ]]; then
+        local value=$(echo "$ERROR_CONTEXT_DATA" | grep -o "$key:[^|]*" | cut -d: -f2- || echo "$default_value")
+        echo "$value"
+    else
+        echo "$default_value"
+    fi
+}
+
 # Initialize error handling system
 init_error_handling() {
     log_debug "Initializing comprehensive error handling system" \
               "Seperti RT yang menyiapkan sistem penanganan darurat untuk kompleks"
-    
+
     # Clear any previous error state
-    ERROR_CONTEXT=()
-    ROLLBACK_STACK=()
-    RECOVERY_ACTIONS=()
+    ERROR_CONTEXT_DATA=""
+    ROLLBACK_STACK_DATA=""
+    RECOVERY_ACTIONS_DATA=""
     RECOVERY_IN_PROGRESS=false
     PARTIAL_CLEANUP_NEEDED=false
-    
+
     # Set up enhanced signal handlers
     setup_enhanced_signal_handlers
-    
+
     return 0
 }
 
@@ -429,17 +442,15 @@ handle_terminate_signal() {
 handle_error_signal() {
     local exit_code=$1
     local line_number=$2
-    
+
     if [[ "$RECOVERY_IN_PROGRESS" != "true" ]]; then
         log_error "Error occurred at line $line_number with exit code $exit_code" \
                   "Seperti RT menemukan masalah pada langkah tertentu"
-        
-        # Add error context
-        ERROR_CONTEXT["line"]=$line_number
-        ERROR_CONTEXT["exit_code"]=$exit_code
-        ERROR_CONTEXT["operation"]=$CURRENT_OPERATION
-        ERROR_CONTEXT["timestamp"]=$(date '+%Y-%m-%d %H:%M:%S')
-        
+
+        # Add error context using simple string format
+        local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+        ERROR_CONTEXT_DATA="line:$line_number|exit_code:$exit_code|operation:$CURRENT_OPERATION|timestamp:$timestamp"
+
         # Mark for cleanup
         PARTIAL_CLEANUP_NEEDED=true
     fi
@@ -449,17 +460,15 @@ handle_error_signal() {
 set_operation_context() {
     local operation=$1
     local details=${2:-""}
-    
+
     CURRENT_OPERATION="$operation"
     OPERATION_START_TIME=$(date '+%Y-%m-%d %H:%M:%S')
-    
+
     log_debug "Starting operation: $operation" \
               "Seperti RT memulai tugas: $operation"
-    
-    # Clear previous error context
-    ERROR_CONTEXT["operation"]=$operation
-    ERROR_CONTEXT["details"]=$details
-    ERROR_CONTEXT["start_time"]=$OPERATION_START_TIME
+
+    # Store error context in simple variables for compatibility
+    ERROR_CONTEXT_DATA="operation:$operation|details:$details|start_time:$OPERATION_START_TIME"
 }
 
 # Clear operation context when completed successfully
@@ -479,10 +488,16 @@ add_rollback_action() {
     local action_id=$1
     local action_command=$2
     local description=${3:-"Rollback action"}
-    
-    ROLLBACK_STACK["$action_id"]="$action_command"
-    RECOVERY_ACTIONS["$action_id"]="$description"
-    
+
+    # Store rollback actions in simple string format
+    if [[ -n "$ROLLBACK_STACK_DATA" ]]; then
+        ROLLBACK_STACK_DATA="$ROLLBACK_STACK_DATA|$action_id:$action_command"
+        RECOVERY_ACTIONS_DATA="$RECOVERY_ACTIONS_DATA|$action_id:$description"
+    else
+        ROLLBACK_STACK_DATA="$action_id:$action_command"
+        RECOVERY_ACTIONS_DATA="$action_id:$description"
+    fi
+
     log_debug "Added rollback action: $action_id" \
               "Seperti RT mencatat langkah pembatalan: $description"
 }
@@ -490,37 +505,48 @@ add_rollback_action() {
 # Execute rollback actions in reverse order
 execute_rollback() {
     local operation=${1:-"unknown"}
-    
-    if [[ ${#ROLLBACK_STACK[@]} -eq 0 ]]; then
+
+    if [[ -z "$ROLLBACK_STACK_DATA" ]]; then
         log_info "No rollback actions needed for operation: $operation" \
                  "Tidak ada langkah pembatalan yang diperlukan"
         return 0
     fi
-    
+
     log_warn "Executing rollback for operation: $operation" \
              "Seperti RT membatalkan perubahan yang sudah dilakukan"
-    
+
     RECOVERY_IN_PROGRESS=true
-    
+
     # Execute rollback actions in reverse order
     local rollback_count=0
-    for action_id in $(printf '%s\n' "${!ROLLBACK_STACK[@]}" | sort -r); do
-        local action_command="${ROLLBACK_STACK[$action_id]}"
-        local description="${RECOVERY_ACTIONS[$action_id]}"
-        
+    local IFS='|'
+    local rollback_actions=($ROLLBACK_STACK_DATA)
+    local recovery_descriptions=($RECOVERY_ACTIONS_DATA)
+
+    # Process in reverse order
+    for ((i=${#rollback_actions[@]}-1; i>=0; i--)); do
+        local action_entry="${rollback_actions[i]}"
+        local desc_entry="${recovery_descriptions[i]}"
+
+        local action_id="${action_entry%%:*}"
+        local action_command="${action_entry#*:}"
+        local description="${desc_entry#*:}"
+
         log_info "Rollback step $((++rollback_count)): $description" \
                  "Seperti RT membatalkan: $description"
-        
+
         if eval "$action_command" 2>/dev/null; then
             log_debug "Rollback action succeeded: $action_id"
-            unset ROLLBACK_STACK["$action_id"]
-            unset RECOVERY_ACTIONS["$action_id"]
         else
             log_warn "Rollback action failed: $action_id" \
                      "Gagal membatalkan: $description"
         fi
     done
-    
+
+    # Clear rollback data
+    ROLLBACK_STACK_DATA=""
+    RECOVERY_ACTIONS_DATA=""
+
     RECOVERY_IN_PROGRESS=false
     log_success "Rollback completed for operation: $operation" \
                 "RT berhasil membatalkan perubahan yang bermasalah"
@@ -1648,8 +1674,8 @@ create_directory() {
 
 # Cleanup partial container creation
 cleanup_partial_container_creation() {
-    local container_name=${ERROR_CONTEXT["details"]:-"unknown"}
-    
+    local container_name=$(get_error_context_value "details" "unknown")
+
     if [[ "$container_name" == "unknown" ]]; then
         log_warn "Cannot cleanup partial container creation - container name unknown" \
                  "Tidak dapat membersihkan pembuatan rumah yang gagal - nama tidak diketahui"
@@ -1681,8 +1707,8 @@ cleanup_partial_container_creation() {
 
 # Cleanup partial container deletion
 cleanup_partial_container_deletion() {
-    local container_name=${ERROR_CONTEXT["details"]:-"unknown"}
-    
+    local container_name=$(get_error_context_value "details" "unknown")
+
     log_info "Cleaning up partial container deletion: $container_name" \
              "Membersihkan penghapusan rumah yang tidak selesai: $container_name"
     
@@ -1703,8 +1729,8 @@ cleanup_partial_container_deletion() {
 
 # Cleanup partial network setup
 cleanup_partial_network_setup() {
-    local container_name=${ERROR_CONTEXT["details"]:-"unknown"}
-    
+    local container_name=$(get_error_context_value "details" "unknown")
+
     log_info "Cleaning up partial network setup: $container_name" \
              "Membersihkan pemasangan jaringan yang gagal: $container_name"
     
@@ -1734,8 +1760,8 @@ cleanup_partial_network_setup() {
 
 # Cleanup partial cgroup setup
 cleanup_partial_cgroup_setup() {
-    local container_name=${ERROR_CONTEXT["details"]:-"unknown"}
-    
+    local container_name=$(get_error_context_value "details" "unknown")
+
     log_info "Cleaning up partial cgroup setup: $container_name" \
              "Membersihkan pengaturan resource yang gagal: $container_name"
     
@@ -1747,8 +1773,8 @@ cleanup_partial_cgroup_setup() {
 
 # Cleanup partial namespace setup
 cleanup_partial_namespace_setup() {
-    local container_name=${ERROR_CONTEXT["details"]:-"unknown"}
-    
+    local container_name=$(get_error_context_value "details" "unknown")
+
     log_info "Cleaning up partial namespace setup: $container_name" \
              "Membersihkan pengaturan namespace yang gagal: $container_name"
     
