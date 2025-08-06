@@ -47,6 +47,15 @@ readonly LOG_DEBUG=4
 # Default log level
 LOG_LEVEL=${LOG_LEVEL:-3}
 
+# Educational and monitoring features
+VERBOSE_MODE=${VERBOSE_MODE:-false}
+DEBUG_MODE=${DEBUG_MODE:-false}
+MONITORING_ENABLED=${MONITORING_ENABLED:-false}
+
+# Monitoring intervals (seconds)
+readonly RESOURCE_MONITOR_INTERVAL=2
+readonly NETWORK_MONITOR_INTERVAL=5
+
 # =============================================================================
 # CLI INTERFACE AND COMMAND PARSING
 # =============================================================================
@@ -174,6 +183,37 @@ log_step() {
     
     echo -e "\n${COLOR_BLUE}📋 Step $step_number: $step_description${COLOR_RESET}"
     [[ -n "$analogy" ]] && echo -e "${COLOR_BLUE}   🏘️  Analoginya: $analogy${COLOR_RESET}"
+    
+    # Add verbose details if enabled
+    if [[ "$VERBOSE_MODE" == "true" ]]; then
+        echo -e "${COLOR_CYAN}   🔍 Verbose: Executing step with detailed monitoring...${COLOR_RESET}"
+        sleep 0.5  # Brief pause for educational effect
+    fi
+}
+
+# Verbose educational logging with detailed explanations
+log_verbose() {
+    local message=$1
+    local technical_detail=${2:-""}
+    local analogy=${3:-""}
+    
+    if [[ "$VERBOSE_MODE" == "true" ]]; then
+        echo -e "${COLOR_PURPLE}[VERBOSE]${COLOR_RESET} 📚 $message"
+        [[ -n "$technical_detail" ]] && echo -e "${COLOR_PURPLE}          🔧 Technical: $technical_detail${COLOR_RESET}"
+        [[ -n "$analogy" ]] && echo -e "${COLOR_PURPLE}          🏘️  Analoginya: $analogy${COLOR_RESET}"
+    fi
+}
+
+# Debug logging with system details
+log_debug_detail() {
+    local component=$1
+    local detail=$2
+    local system_info=${3:-""}
+    
+    if [[ "$DEBUG_MODE" == "true" ]]; then
+        echo -e "${COLOR_CYAN}[DEBUG]${COLOR_RESET} 🔍 [$component] $detail"
+        [[ -n "$system_info" ]] && echo -e "${COLOR_CYAN}        📊 System: $system_info${COLOR_RESET}"
+    fi
 }
 
 # Success message with celebration
@@ -659,6 +699,829 @@ test_busybox_functionality() {
                 "Semua peralatan rumah telah diuji dan berfungsi dengan baik"
     
     return 0
+}
+
+# =============================================================================
+# EDUCATIONAL FEATURES AND MONITORING SYSTEM
+# =============================================================================
+
+# Real-time resource monitoring with housing analogies
+monitor_container_resources() {
+    local container_name=$1
+    local duration=${2:-30}  # Default 30 seconds
+    
+    if [[ ! -d "$CONTAINERS_DIR/$container_name" ]]; then
+        log_error "Container '$container_name' not found" \
+                  "Seperti rumah yang tidak terdaftar di RT"
+        return 1
+    fi
+    
+    log_info "Starting resource monitoring for container: $container_name" \
+             "Seperti RT mulai memantau penggunaan listrik dan air rumah"
+    
+    local memory_cgroup="$CGROUP_ROOT/memory/container-$container_name"
+    local cpu_cgroup="$CGROUP_ROOT/cpu/container-$container_name"
+    local start_time=$(date +%s)
+    local end_time=$((start_time + duration))
+    
+    echo -e "\n${COLOR_GREEN}🏠 Resource Monitor - Container: $container_name${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}📊 Monitoring Duration: ${duration}s (seperti membaca meteran listrik dan air)${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}⏰ Started at: $(date)${COLOR_RESET}\n"
+    
+    # Header for monitoring table
+    printf "%-8s %-12s %-12s %-12s %-15s\n" "Time" "Memory(MB)" "Memory%" "CPU%" "Status"
+    printf "%-8s %-12s %-12s %-12s %-15s\n" "----" "----------" "--------" "-----" "------"
+    
+    while [[ $(date +%s) -lt $end_time ]]; do
+        local current_time=$(date +%H:%M:%S)
+        local memory_usage="N/A"
+        local memory_percent="N/A"
+        local cpu_percent="N/A"
+        local status="Unknown"
+        
+        # Get memory usage
+        if [[ -f "$memory_cgroup/memory.usage_in_bytes" ]] && [[ -f "$memory_cgroup/memory.limit_in_bytes" ]]; then
+            local memory_bytes=$(cat "$memory_cgroup/memory.usage_in_bytes" 2>/dev/null || echo "0")
+            local memory_limit=$(cat "$memory_cgroup/memory.limit_in_bytes" 2>/dev/null || echo "1")
+            memory_usage=$((memory_bytes / 1024 / 1024))
+            memory_percent=$(( (memory_bytes * 100) / memory_limit ))
+        fi
+        
+        # Get CPU usage (simplified)
+        if [[ -f "$cpu_cgroup/cpuacct.usage" ]]; then
+            cpu_percent="Active"
+        fi
+        
+        # Check container status
+        if container_is_running "$container_name"; then
+            status="🟢 Running"
+        else
+            status="🔴 Stopped"
+        fi
+        
+        printf "%-8s %-12s %-12s %-12s %-15s\n" \
+               "$current_time" "$memory_usage" "$memory_percent%" "$cpu_percent" "$status"
+        
+        # Add educational commentary periodically
+        if [[ $(($(date +%s) % 10)) -eq 0 ]]; then
+            echo -e "${COLOR_YELLOW}   💡 Seperti RT mengecek meteran listrik: Memory ${memory_usage}MB dari limit${COLOR_RESET}"
+        fi
+        
+        sleep $RESOURCE_MONITOR_INTERVAL
+    done
+    
+    echo -e "\n${COLOR_GREEN}✅ Resource monitoring completed${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}📝 Seperti RT selesai mencatat penggunaan utilitas bulanan${COLOR_RESET}\n"
+}
+
+# Network topology display - "Peta kompleks perumahan"
+show_network_topology() {
+    log_info "Displaying network topology" \
+             "Seperti RT menunjukkan peta kompleks perumahan dan sambungan telepon"
+    
+    echo -e "\n${COLOR_CYAN}🗺️  PETA KOMPLEKS PERUMAHAN RT (Network Topology)${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}=================================================${COLOR_RESET}\n"
+    
+    # Show host network information
+    echo -e "${COLOR_BLUE}🏛️  KANTOR RW (Host Network)${COLOR_RESET}"
+    echo -e "${COLOR_BLUE}├── 🌐 Internet Gateway: $(ip route | grep default | awk '{print $3}' 2>/dev/null || echo 'N/A')${COLOR_RESET}"
+    echo -e "${COLOR_BLUE}├── 📡 Host IP: $(hostname -I | awk '{print $1}' 2>/dev/null || echo 'N/A')${COLOR_RESET}"
+    echo -e "${COLOR_BLUE}└── 🔧 Network Interface: $(ip route | grep default | awk '{print $5}' 2>/dev/null || echo 'N/A')${COLOR_RESET}"
+    
+    echo -e "\n${COLOR_GREEN}🏘️  KOMPLEKS PERUMAHAN (Container Network)${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── 📞 Jaringan Telepon Internal: $CONTAINER_NETWORK${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── 🏢 Kantor RT (Network Namespace Manager)${COLOR_RESET}"
+    
+    # List all containers and their network information
+    local container_count=0
+    if [[ -d "$CONTAINERS_DIR" ]]; then
+        for container_dir in "$CONTAINERS_DIR"/*; do
+            if [[ -d "$container_dir" && "$(basename "$container_dir")" != "busybox" ]]; then
+                local container_name=$(basename "$container_dir")
+                container_count=$((container_count + 1))
+                
+                echo -e "${COLOR_GREEN}├── 🏠 Rumah: $container_name${COLOR_RESET}"
+                
+                # Get container network info
+                local config_file="$container_dir/config.json"
+                if [[ -f "$config_file" ]]; then
+                    local ip_address=$(grep -o '"ip_address":"[^"]*"' "$config_file" 2>/dev/null | cut -d'"' -f4 || echo "N/A")
+                    local veth_host=$(grep -o '"veth_host":"[^"]*"' "$config_file" 2>/dev/null | cut -d'"' -f4 || echo "N/A")
+                    local veth_container=$(grep -o '"veth_container":"[^"]*"' "$config_file" 2>/dev/null | cut -d'"' -f4 || echo "N/A")
+                    
+                    echo -e "${COLOR_GREEN}│   ├── 📞 Nomor Telepon: $ip_address${COLOR_RESET}"
+                    echo -e "${COLOR_GREEN}│   ├── 🔌 Kabel ke RT: $veth_host${COLOR_RESET}"
+                    echo -e "${COLOR_GREEN}│   └── 🔌 Kabel di Rumah: $veth_container${COLOR_RESET}"
+                    
+                    # Check if container is running and can communicate
+                    if container_is_running "$container_name"; then
+                        echo -e "${COLOR_GREEN}│       └── 🟢 Status: Aktif (bisa menerima telepon)${COLOR_RESET}"
+                    else
+                        echo -e "${COLOR_GREEN}│       └── 🔴 Status: Tidak Aktif (telepon mati)${COLOR_RESET}"
+                    fi
+                else
+                    echo -e "${COLOR_GREEN}│   └── ❓ Info tidak tersedia${COLOR_RESET}"
+                fi
+            fi
+        done
+    fi
+    
+    if [[ $container_count -eq 0 ]]; then
+        echo -e "${COLOR_GREEN}└── 🏚️  Belum ada rumah yang dibangun${COLOR_RESET}"
+    else
+        echo -e "${COLOR_GREEN}└── 📊 Total Rumah: $container_count${COLOR_RESET}"
+    fi
+    
+    # Show network namespace information
+    echo -e "\n${COLOR_PURPLE}🔍 DETAIL TEKNIS JARINGAN${COLOR_RESET}"
+    echo -e "${COLOR_PURPLE}=========================${COLOR_RESET}"
+    
+    # List network namespaces
+    if command -v ip &> /dev/null; then
+        echo -e "${COLOR_PURPLE}📡 Network Namespaces:${COLOR_RESET}"
+        if ip netns list 2>/dev/null | grep -q .; then
+            ip netns list 2>/dev/null | while read -r ns; do
+                echo -e "${COLOR_PURPLE}   └── $ns${COLOR_RESET}"
+            done
+        else
+            echo -e "${COLOR_PURPLE}   └── Tidak ada namespace terdeteksi${COLOR_RESET}"
+        fi
+        
+        # Show veth pairs
+        echo -e "\n${COLOR_PURPLE}🔗 Virtual Ethernet Pairs (Kabel Telepon):${COLOR_RESET}"
+        if ip link show type veth 2>/dev/null | grep -q .; then
+            ip link show type veth 2>/dev/null | grep -E "^[0-9]+:" | while read -r line; do
+                local veth_name=$(echo "$line" | awk '{print $2}' | sed 's/@.*//' | sed 's/://')
+                echo -e "${COLOR_PURPLE}   └── $veth_name${COLOR_RESET}"
+            done
+        else
+            echo -e "${COLOR_PURPLE}   └── Tidak ada veth pairs terdeteksi${COLOR_RESET}"
+        fi
+    else
+        echo -e "${COLOR_PURPLE}⚠️  Command 'ip' tidak tersedia untuk detail teknis${COLOR_RESET}"
+    fi
+    
+    echo -e "\n${COLOR_CYAN}📝 Legenda Peta Kompleks:${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}🏛️  = Kantor RW (Host System)${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}🏢 = Kantor RT (Network Manager)${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}🏠 = Rumah Warga (Container)${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}📞 = Nomor Telepon (IP Address)${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}🔌 = Kabel Telepon (veth pair)${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}🟢 = Rumah Aktif / 🔴 = Rumah Tidak Aktif${COLOR_RESET}\n"
+}
+
+# Interactive help system with examples
+show_interactive_help() {
+    local topic=${1:-"main"}
+    
+    case "$topic" in
+        "main"|"help")
+            show_main_help
+            ;;
+        "create"|"create-container")
+            show_create_help
+            ;;
+        "list"|"list-containers")
+            show_list_help
+            ;;
+        "run"|"run-container")
+            show_run_help
+            ;;
+        "delete"|"delete-container")
+            show_delete_help
+            ;;
+        "monitor"|"monitoring")
+            show_monitoring_help
+            ;;
+        "network"|"topology")
+            show_network_help
+            ;;
+        "debug")
+            show_debug_help
+            ;;
+        "analogy"|"analogies")
+            show_analogy_help
+            ;;
+        *)
+            echo -e "${COLOR_RED}❓ Unknown help topic: $topic${COLOR_RESET}"
+            echo -e "${COLOR_YELLOW}Available topics: main, create, list, run, delete, monitor, network, debug, analogy${COLOR_RESET}"
+            return 1
+            ;;
+    esac
+}
+
+# Main help display
+show_main_help() {
+    echo -e "\n${COLOR_BLUE}🏘️  RT (Rukun Tetangga) Container Runtime - Interactive Help${COLOR_RESET}"
+    echo -e "${COLOR_BLUE}=========================================================${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_GREEN}📚 PERINTAH UTAMA (Main Commands):${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── create-container  : Membuat rumah baru di kompleks${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── list-containers   : Melihat daftar semua rumah${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── run-container     : Masuk ke rumah untuk beraktivitas${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── delete-container  : Menghapus rumah dari kompleks${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── monitor          : Memantau penggunaan utilitas rumah${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── show-topology    : Melihat peta kompleks perumahan${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}└── cleanup-all      : Bersih-bersih kompleks menyeluruh${COLOR_RESET}"
+    
+    echo -e "\n${COLOR_CYAN}🔧 MODE OPERASI (Operation Modes):${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}├── --verbose        : Mode penjelasan detail${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}├── --debug          : Mode debugging teknis${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}└── --monitor        : Mode monitoring real-time${COLOR_RESET}"
+    
+    echo -e "\n${COLOR_PURPLE}📖 BANTUAN DETAIL (Detailed Help):${COLOR_RESET}"
+    echo -e "${COLOR_PURPLE}├── $0 help create   : Bantuan membuat container${COLOR_RESET}"
+    echo -e "${COLOR_PURPLE}├── $0 help list     : Bantuan melihat daftar container${COLOR_RESET}"
+    echo -e "${COLOR_PURPLE}├── $0 help run      : Bantuan menjalankan container${COLOR_RESET}"
+    echo -e "${COLOR_PURPLE}├── $0 help delete   : Bantuan menghapus container${COLOR_RESET}"
+    echo -e "${COLOR_PURPLE}├── $0 help monitor  : Bantuan monitoring resources${COLOR_RESET}"
+    echo -e "${COLOR_PURPLE}├── $0 help network  : Bantuan network topology${COLOR_RESET}"
+    echo -e "${COLOR_PURPLE}├── $0 help debug    : Bantuan debugging${COLOR_RESET}"
+    echo -e "${COLOR_PURPLE}└── $0 help analogy  : Penjelasan analogi perumahan${COLOR_RESET}"
+    
+    echo -e "\n${COLOR_YELLOW}💡 CONTOH PENGGUNAAN CEPAT:${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}# Membuat rumah baru dengan nama 'webapp'${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}sudo $0 create-container webapp --ram=512 --cpu=50${COLOR_RESET}"
+    echo -e "\n${COLOR_YELLOW}# Masuk ke rumah 'webapp'${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}sudo $0 run-container webapp${COLOR_RESET}"
+    echo -e "\n${COLOR_YELLOW}# Melihat semua rumah di kompleks${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}sudo $0 list-containers${COLOR_RESET}"
+    echo -e "\n${COLOR_YELLOW}# Memantau penggunaan utilitas rumah 'webapp'${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}sudo $0 monitor webapp 60${COLOR_RESET}"
+    
+    echo -e "\n${COLOR_BLUE}🏘️  Seperti RT yang siap membantu warga kompleks!${COLOR_RESET}\n"
+}
+
+# Create container help
+show_create_help() {
+    echo -e "\n${COLOR_GREEN}🏗️  BANTUAN: Membuat Container (Rumah Baru)${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}===========================================${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_BLUE}📝 SINTAKS:${COLOR_RESET}"
+    echo -e "${COLOR_BLUE}$0 create-container <nama_rumah> [--ram=MB] [--cpu=PERCENT]${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_CYAN}📋 PARAMETER:${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}├── nama_rumah : Nama unik untuk rumah baru (wajib)${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}├── --ram=MB   : Batas penggunaan RAM dalam MB (default: 512)${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}└── --cpu=PERCENT : Batas penggunaan CPU dalam % (default: 50)${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_YELLOW}💡 CONTOH PENGGUNAAN:${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}# Rumah sederhana dengan setting default${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}sudo $0 create-container rumah-kecil${COLOR_RESET}\n"
+    echo -e "${COLOR_YELLOW}# Rumah besar dengan RAM 1GB dan CPU 75%${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}sudo $0 create-container rumah-besar --ram=1024 --cpu=75${COLOR_RESET}\n"
+    echo -e "${COLOR_YELLOW}# Rumah hemat dengan RAM 256MB dan CPU 25%${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}sudo $0 create-container rumah-hemat --ram=256 --cpu=25${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_PURPLE}🏘️  ANALOGI PERUMAHAN:${COLOR_RESET}"
+    echo -e "${COLOR_PURPLE}Seperti RT yang membantu warga membangun rumah baru:${COLOR_RESET}"
+    echo -e "${COLOR_PURPLE}├── Nama rumah = Alamat untuk identifikasi${COLOR_RESET}"
+    echo -e "${COLOR_PURPLE}├── RAM = Kapasitas listrik rumah${COLOR_RESET}"
+    echo -e "${COLOR_PURPLE}├── CPU = Alokasi waktu kerja untuk aktivitas${COLOR_RESET}"
+    echo -e "${COLOR_PURPLE}└── RT akan menyiapkan semua infrastruktur dasar${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_RED}⚠️  BATASAN DAN ATURAN:${COLOR_RESET}"
+    echo -e "${COLOR_RED}├── Nama rumah: 1-50 karakter, huruf/angka/dash/underscore${COLOR_RESET}"
+    echo -e "${COLOR_RED}├── RAM minimum: 64MB, maksimum: 8192MB (8GB)${COLOR_RESET}"
+    echo -e "${COLOR_RED}├── CPU minimum: 1%, maksimum: 100%${COLOR_RESET}"
+    echo -e "${COLOR_RED}└── Nama rumah harus unik di kompleks${COLOR_RESET}\n"
+}
+
+# List containers help
+show_list_help() {
+    echo -e "\n${COLOR_GREEN}📋 BANTUAN: Melihat Daftar Container${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}===================================${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_BLUE}📝 SINTAKS:${COLOR_RESET}"
+    echo -e "${COLOR_BLUE}$0 list-containers [--verbose] [--monitor]${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_CYAN}📋 OPSI:${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}├── --verbose : Tampilkan informasi detail${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}└── --monitor : Tampilkan monitoring real-time${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_YELLOW}💡 CONTOH PENGGUNAAN:${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}# Daftar sederhana${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}sudo $0 list-containers${COLOR_RESET}\n"
+    echo -e "${COLOR_YELLOW}# Daftar dengan detail lengkap${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}sudo $0 list-containers --verbose${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_PURPLE}🏘️  ANALOGI: Seperti RT yang mengecek daftar warga dan status rumah${COLOR_RESET}\n"
+}
+
+# Run container help
+show_run_help() {
+    echo -e "\n${COLOR_GREEN}🏃 BANTUAN: Menjalankan Container${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}===============================${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_BLUE}📝 SINTAKS:${COLOR_RESET}"
+    echo -e "${COLOR_BLUE}$0 run-container <nama_rumah> [command]${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_CYAN}📋 PARAMETER:${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}├── nama_rumah : Nama rumah yang akan dimasuki${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}└── command    : Perintah khusus (default: shell interaktif)${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_YELLOW}💡 CONTOH PENGGUNAAN:${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}# Masuk ke rumah dengan shell interaktif${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}sudo $0 run-container webapp${COLOR_RESET}\n"
+    echo -e "${COLOR_YELLOW}# Jalankan perintah khusus${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}sudo $0 run-container webapp 'ls -la'${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_PURPLE}🏘️  ANALOGI: Seperti masuk ke rumah warga untuk beraktivitas${COLOR_RESET}\n"
+}
+
+# Delete container help
+show_delete_help() {
+    echo -e "\n${COLOR_GREEN}🗑️  BANTUAN: Menghapus Container${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}==============================${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_BLUE}📝 SINTAKS:${COLOR_RESET}"
+    echo -e "${COLOR_BLUE}$0 delete-container <nama_rumah> [--force]${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_CYAN}📋 PARAMETER:${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}├── nama_rumah : Nama rumah yang akan dihapus${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}└── --force    : Hapus paksa tanpa konfirmasi${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_YELLOW}💡 CONTOH PENGGUNAAN:${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}# Hapus dengan konfirmasi${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}sudo $0 delete-container old-webapp${COLOR_RESET}\n"
+    echo -e "${COLOR_YELLOW}# Hapus paksa${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}sudo $0 delete-container old-webapp --force${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_PURPLE}🏘️  ANALOGI: Seperti RT yang membantu warga pindah dan membersihkan rumah lama${COLOR_RESET}\n"
+}
+
+# Monitoring help
+show_monitoring_help() {
+    echo -e "\n${COLOR_GREEN}📊 BANTUAN: Resource Monitoring${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}==============================${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_BLUE}📝 SINTAKS:${COLOR_RESET}"
+    echo -e "${COLOR_BLUE}$0 monitor <nama_rumah> [duration_seconds]${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_CYAN}📋 PARAMETER:${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}├── nama_rumah : Nama rumah yang akan dipantau${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}└── duration   : Durasi monitoring dalam detik (default: 30)${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_YELLOW}💡 CONTOH PENGGUNAAN:${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}# Monitor selama 30 detik${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}sudo $0 monitor webapp${COLOR_RESET}\n"
+    echo -e "${COLOR_YELLOW}# Monitor selama 2 menit${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}sudo $0 monitor webapp 120${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_PURPLE}🏘️  ANALOGI: Seperti RT yang mengecek meteran listrik dan air rumah warga${COLOR_RESET}\n"
+}
+
+# Network help
+show_network_help() {
+    echo -e "\n${COLOR_GREEN}🌐 BANTUAN: Network Topology${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}============================${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_BLUE}📝 SINTAKS:${COLOR_RESET}"
+    echo -e "${COLOR_BLUE}$0 show-topology [--detailed]${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_CYAN}📋 OPSI:${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}└── --detailed : Tampilkan informasi teknis detail${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_YELLOW}💡 CONTOH PENGGUNAAN:${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}# Peta kompleks sederhana${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}sudo $0 show-topology${COLOR_RESET}\n"
+    echo -e "${COLOR_YELLOW}# Peta dengan detail teknis${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}sudo $0 show-topology --detailed${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_PURPLE}🏘️  ANALOGI: Seperti peta kompleks yang menunjukkan semua rumah dan sambungan telepon${COLOR_RESET}\n"
+}
+
+# Debug help
+show_debug_help() {
+    echo -e "\n${COLOR_GREEN}🔍 BANTUAN: Debug Mode${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}====================${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_BLUE}📝 SINTAKS:${COLOR_RESET}"
+    echo -e "${COLOR_BLUE}$0 debug [component]${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_CYAN}📋 KOMPONEN:${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}├── all        : Semua informasi debug${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}├── system     : Informasi sistem${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}├── containers : Informasi container${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}├── network    : Informasi jaringan${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}├── cgroups    : Informasi cgroups${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}└── namespaces : Informasi namespaces${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_YELLOW}💡 CONTOH PENGGUNAAN:${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}# Debug semua komponen${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}sudo $0 debug${COLOR_RESET}\n"
+    echo -e "${COLOR_YELLOW}# Debug jaringan saja${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}sudo $0 debug network${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_PURPLE}🏘️  ANALOGI: Seperti RT yang melakukan inspeksi menyeluruh kompleks${COLOR_RESET}\n"
+}
+
+# Analogy help - explain the housing analogy system
+show_analogy_help() {
+    echo -e "\n${COLOR_PURPLE}🏘️  SISTEM ANALOGI RT DI PERUMAHAN${COLOR_RESET}"
+    echo -e "${COLOR_PURPLE}===============================${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_BLUE}📚 KONSEP DASAR:${COLOR_RESET}"
+    echo -e "${COLOR_BLUE}RT Container Runtime menggunakan analogi kompleks perumahan${COLOR_RESET}"
+    echo -e "${COLOR_BLUE}untuk menjelaskan konsep container technology${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_GREEN}🏠 PEMETAAN KONSEP:${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── Container        = Rumah di kompleks${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── Host System      = Kantor RW (pemerintahan atas)${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── RT Script        = Kantor RT (pengelola kompleks)${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── PID Namespace    = Sistem penomoran keluarga${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── Network NS       = Sistem telepon internal${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── Mount NS         = Rak buku pribadi rumah${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── UTS NS           = Nama/papan nama rumah${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── IPC NS           = Papan tulis keluarga${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── User NS          = Sistem keanggotaan keluarga${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── Cgroups          = Pembatasan listrik & air${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── veth pairs       = Kabel telepon antar rumah${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── IP Address       = Nomor telepon rumah${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}└── Resource Monitor = Meteran listrik & air${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_CYAN}👨‍👩‍👧‍👦 ANALOGI PID NAMESPACE:${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}Setiap rumah punya sistem penomoran keluarga sendiri:${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}├── PID 1 = Ayah (selalu nomor 1 di rumahnya)${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}├── PID 2 = Ibu (nomor 2 di rumahnya)${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}├── PID 3 = Kakak (anak pertama)${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}└── PID 4 = Adik (anak kedua)${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}Ayah di rumah A berbeda dengan Ayah di rumah B${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_YELLOW}📞 ANALOGI NETWORK:${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}├── Setiap rumah punya nomor telepon (IP address)${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}├── Kabel telepon menghubungkan rumah (veth pairs)${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}├── Bisa telepon langsung antar rumah${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}├── RT mengelola sistem telepon kompleks${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}└── RW mengatur koneksi ke luar kompleks${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_RED}⚡ ANALOGI RESOURCE MANAGEMENT:${COLOR_RESET}"
+    echo -e "${COLOR_RED}├── RAM = Kapasitas listrik rumah${COLOR_RESET}"
+    echo -e "${COLOR_RED}├── CPU = Alokasi waktu kerja${COLOR_RESET}"
+    echo -e "${COLOR_RED}├── RT mengatur pembatasan untuk keadilan${COLOR_RESET}"
+    echo -e "${COLOR_RED}├── Meteran untuk monitoring penggunaan${COLOR_RESET}"
+    echo -e "${COLOR_RED}└── Tagihan bulanan = laporan resource usage${COLOR_RESET}\n"
+    
+    echo -e "${COLOR_PURPLE}🎯 TUJUAN ANALOGI:${COLOR_RESET}"
+    echo -e "${COLOR_PURPLE}├── Membuat konsep teknis lebih mudah dipahami${COLOR_RESET}"
+    echo -e "${COLOR_PURPLE}├── Menggunakan konteks yang familiar (perumahan)${COLOR_RESET}"
+    echo -e "${COLOR_PURPLE}├── Membantu visualisasi sistem yang kompleks${COLOR_RESET}"
+    echo -e "${COLOR_PURPLE}└── Memberikan pembelajaran yang menyenangkan${COLOR_RESET}\n"
+}
+
+# Debug mode with detailed system information
+show_debug_info() {
+    local component=${1:-"all"}
+    
+    echo -e "\n${COLOR_CYAN}🔍 DEBUG MODE - System Information${COLOR_RESET}"
+    echo -e "${COLOR_CYAN}===================================${COLOR_RESET}\n"
+    
+    case "$component" in
+        "all"|"system")
+            show_system_debug_info
+            ;;
+        "containers")
+            show_containers_debug_info
+            ;;
+        "network")
+            show_network_debug_info
+            ;;
+        "cgroups")
+            show_cgroups_debug_info
+            ;;
+        "namespaces")
+            show_namespaces_debug_info
+            ;;
+        *)
+            echo -e "${COLOR_RED}Unknown debug component: $component${COLOR_RESET}"
+            echo -e "${COLOR_YELLOW}Available: all, system, containers, network, cgroups, namespaces${COLOR_RESET}"
+            return 1
+            ;;
+    esac
+}
+
+# System debug information
+show_system_debug_info() {
+    echo -e "${COLOR_BLUE}🖥️  SYSTEM DEBUG INFO${COLOR_RESET}"
+    echo -e "${COLOR_BLUE}===================${COLOR_RESET}"
+    
+    echo -e "${COLOR_GREEN}📊 Basic System Info:${COLOR_RESET}"
+    echo -e "   OS: $(uname -s) $(uname -r)"
+    echo -e "   Architecture: $(uname -m)"
+    echo -e "   Hostname: $(hostname)"
+    echo -e "   Uptime: $(uptime | awk '{print $3,$4}' | sed 's/,//')"
+    
+    echo -e "\n${COLOR_GREEN}💾 Memory Info:${COLOR_RESET}"
+    if command -v free &> /dev/null; then
+        free -h | head -2
+    else
+        echo -e "   Command 'free' not available"
+    fi
+    
+    echo -e "\n${COLOR_GREEN}💽 Disk Usage:${COLOR_RESET}"
+    df -h / 2>/dev/null | tail -1 | awk '{print "   Root: " $3 " used / " $2 " total (" $5 " full)"}'
+    df -h /tmp 2>/dev/null | tail -1 | awk '{print "   /tmp: " $3 " used / " $2 " total (" $5 " full)"}'
+    
+    echo -e "\n${COLOR_GREEN}🔧 Required Commands:${COLOR_RESET}"
+    local commands=("unshare" "nsenter" "ip" "mount" "umount" "cgroups")
+    for cmd in "${commands[@]}"; do
+        if command -v "$cmd" &> /dev/null; then
+            echo -e "   ✅ $cmd: $(command -v "$cmd")"
+        else
+            echo -e "   ❌ $cmd: Not found"
+        fi
+    done
+    
+    echo -e "\n${COLOR_GREEN}🏘️  RT Container Runtime:${COLOR_RESET}"
+    echo -e "   Script: $0"
+    echo -e "   Version: $SCRIPT_VERSION"
+    echo -e "   Containers Dir: $CONTAINERS_DIR"
+    echo -e "   Busybox Path: $BUSYBOX_PATH"
+    echo -e "   Log Level: $LOG_LEVEL"
+    echo -e "   Verbose Mode: $VERBOSE_MODE"
+    echo -e "   Debug Mode: $DEBUG_MODE"
+    echo ""
+}
+
+# Containers debug information
+show_containers_debug_info() {
+    echo -e "${COLOR_BLUE}🏠 CONTAINERS DEBUG INFO${COLOR_RESET}"
+    echo -e "${COLOR_BLUE}========================${COLOR_RESET}"
+    
+    if [[ ! -d "$CONTAINERS_DIR" ]]; then
+        echo -e "${COLOR_RED}   ❌ Containers directory not found: $CONTAINERS_DIR${COLOR_RESET}"
+        return 1
+    fi
+    
+    echo -e "${COLOR_GREEN}📁 Containers Directory: $CONTAINERS_DIR${COLOR_RESET}"
+    echo -e "   Permissions: $(ls -ld "$CONTAINERS_DIR" | awk '{print $1}')"
+    echo -e "   Owner: $(ls -ld "$CONTAINERS_DIR" | awk '{print $3":"$4}')"
+    
+    local container_count=0
+    for container_dir in "$CONTAINERS_DIR"/*; do
+        if [[ -d "$container_dir" && "$(basename "$container_dir")" != "busybox" ]]; then
+            local container_name=$(basename "$container_dir")
+            container_count=$((container_count + 1))
+            
+            echo -e "\n${COLOR_CYAN}🏠 Container: $container_name${COLOR_RESET}"
+            echo -e "   Path: $container_dir"
+            echo -e "   Status: $(container_is_running "$container_name" && echo "🟢 Running" || echo "🔴 Stopped")"
+            
+            # Check config file
+            local config_file="$container_dir/config.json"
+            if [[ -f "$config_file" ]]; then
+                echo -e "   Config: ✅ Present"
+                local memory=$(grep -o '"memory_mb":[0-9]*' "$config_file" 2>/dev/null | cut -d':' -f2 || echo "N/A")
+                local cpu=$(grep -o '"cpu_percentage":[0-9]*' "$config_file" 2>/dev/null | cut -d':' -f2 || echo "N/A")
+                echo -e "   Memory Limit: ${memory}MB"
+                echo -e "   CPU Limit: ${cpu}%"
+            else
+                echo -e "   Config: ❌ Missing"
+            fi
+            
+            # Check PID file
+            local pid_file="$container_dir/container.pid"
+            if [[ -f "$pid_file" ]]; then
+                local pid=$(cat "$pid_file" 2>/dev/null || echo "N/A")
+                echo -e "   PID: $pid"
+            else
+                echo -e "   PID: Not running"
+            fi
+            
+            # Check rootfs
+            if [[ -d "$container_dir/rootfs" ]]; then
+                echo -e "   Rootfs: ✅ Present"
+                echo -e "   Rootfs Size: $(du -sh "$container_dir/rootfs" 2>/dev/null | cut -f1 || echo "N/A")"
+            else
+                echo -e "   Rootfs: ❌ Missing"
+            fi
+        fi
+    done
+    
+    echo -e "\n${COLOR_GREEN}📊 Summary: $container_count containers found${COLOR_RESET}"
+    echo ""
+}
+
+# Network debug information
+show_network_debug_info() {
+    echo -e "${COLOR_BLUE}🌐 NETWORK DEBUG INFO${COLOR_RESET}"
+    echo -e "${COLOR_BLUE}=====================${COLOR_RESET}"
+    
+    echo -e "${COLOR_GREEN}🔧 Network Commands Availability:${COLOR_RESET}"
+    local net_commands=("ip" "ifconfig" "netstat" "ss" "ping")
+    for cmd in "${net_commands[@]}"; do
+        if command -v "$cmd" &> /dev/null; then
+            echo -e "   ✅ $cmd: Available"
+        else
+            echo -e "   ❌ $cmd: Not found"
+        fi
+    done
+    
+    if command -v ip &> /dev/null; then
+        echo -e "\n${COLOR_GREEN}📡 Network Interfaces:${COLOR_RESET}"
+        ip link show 2>/dev/null | grep -E "^[0-9]+:" | while read -r line; do
+            local iface=$(echo "$line" | awk '{print $2}' | sed 's/://')
+            local state=$(echo "$line" | grep -o "state [A-Z]*" | awk '{print $2}')
+            echo -e "   └── $iface: $state"
+        done
+        
+        echo -e "\n${COLOR_GREEN}🔗 Virtual Ethernet Pairs:${COLOR_RESET}"
+        if ip link show type veth 2>/dev/null | grep -q .; then
+            ip link show type veth 2>/dev/null | grep -E "^[0-9]+:" | while read -r line; do
+                local veth=$(echo "$line" | awk '{print $2}' | sed 's/@.*//' | sed 's/://')
+                local peer=$(echo "$line" | grep -o "@[^:]*" | sed 's/@//')
+                echo -e "   └── $veth ↔ $peer"
+            done
+        else
+            echo -e "   └── No veth pairs found"
+        fi
+        
+        echo -e "\n${COLOR_GREEN}🏠 Network Namespaces:${COLOR_RESET}"
+        if ip netns list 2>/dev/null | grep -q .; then
+            ip netns list 2>/dev/null | while read -r ns; do
+                echo -e "   └── $ns"
+            done
+        else
+            echo -e "   └── No network namespaces found"
+        fi
+        
+        echo -e "\n${COLOR_GREEN}🛣️  Routing Table:${COLOR_RESET}"
+        ip route show 2>/dev/null | head -5 | while read -r route; do
+            echo -e "   └── $route"
+        done
+    else
+        echo -e "\n${COLOR_RED}⚠️  'ip' command not available - limited network debug info${COLOR_RESET}"
+    fi
+    
+    echo ""
+}
+
+# Cgroups debug information
+show_cgroups_debug_info() {
+    echo -e "${COLOR_BLUE}⚙️  CGROUPS DEBUG INFO${COLOR_RESET}"
+    echo -e "${COLOR_BLUE}=====================${COLOR_RESET}"
+    
+    echo -e "${COLOR_GREEN}📁 Cgroups Root: $CGROUP_ROOT${COLOR_RESET}"
+    if [[ -d "$CGROUP_ROOT" ]]; then
+        echo -e "   Status: ✅ Available"
+        echo -e "   Permissions: $(ls -ld "$CGROUP_ROOT" | awk '{print $1}')"
+        
+        # Check cgroup version
+        if [[ -f "$CGROUP_ROOT/cgroup.controllers" ]]; then
+            echo -e "   Version: cgroups v2"
+        elif [[ -d "$CGROUP_ROOT/memory" ]] && [[ -d "$CGROUP_ROOT/cpu" ]]; then
+            echo -e "   Version: cgroups v1"
+        else
+            echo -e "   Version: Unknown"
+        fi
+    else
+        echo -e "   Status: ❌ Not found"
+        return 1
+    fi
+    
+    echo -e "\n${COLOR_GREEN}🏠 Container Cgroups:${COLOR_RESET}"
+    local cgroup_count=0
+    
+    # Check memory cgroups
+    if [[ -d "$CGROUP_ROOT/memory" ]]; then
+        for cgroup_dir in "$CGROUP_ROOT/memory"/container-*; do
+            if [[ -d "$cgroup_dir" ]]; then
+                local container_name=$(basename "$cgroup_dir" | sed 's/container-//')
+                cgroup_count=$((cgroup_count + 1))
+                
+                echo -e "   🏠 $container_name:"
+                
+                # Memory info
+                if [[ -f "$cgroup_dir/memory.limit_in_bytes" ]]; then
+                    local limit=$(cat "$cgroup_dir/memory.limit_in_bytes" 2>/dev/null || echo "0")
+                    local usage=$(cat "$cgroup_dir/memory.usage_in_bytes" 2>/dev/null || echo "0")
+                    local limit_mb=$((limit / 1024 / 1024))
+                    local usage_mb=$((usage / 1024 / 1024))
+                    echo -e "      Memory: ${usage_mb}MB / ${limit_mb}MB"
+                fi
+                
+                # Process count
+                if [[ -f "$cgroup_dir/cgroup.procs" ]]; then
+                    local proc_count=$(wc -l < "$cgroup_dir/cgroup.procs" 2>/dev/null || echo "0")
+                    echo -e "      Processes: $proc_count"
+                fi
+            fi
+        done
+    fi
+    
+    # Check CPU cgroups
+    if [[ -d "$CGROUP_ROOT/cpu" ]]; then
+        echo -e "\n${COLOR_GREEN}⚡ CPU Cgroups:${COLOR_RESET}"
+        for cgroup_dir in "$CGROUP_ROOT/cpu"/container-*; do
+            if [[ -d "$cgroup_dir" ]]; then
+                local container_name=$(basename "$cgroup_dir" | sed 's/container-//')
+                
+                if [[ -f "$cgroup_dir/cpu.cfs_quota_us" ]] && [[ -f "$cgroup_dir/cpu.cfs_period_us" ]]; then
+                    local quota=$(cat "$cgroup_dir/cpu.cfs_quota_us" 2>/dev/null || echo "-1")
+                    local period=$(cat "$cgroup_dir/cpu.cfs_period_us" 2>/dev/null || echo "100000")
+                    
+                    if [[ "$quota" != "-1" ]]; then
+                        local cpu_percent=$(( (quota * 100) / period ))
+                        echo -e "   🏠 $container_name: ${cpu_percent}% CPU limit"
+                    else
+                        echo -e "   🏠 $container_name: No CPU limit"
+                    fi
+                fi
+            fi
+        done
+    fi
+    
+    if [[ $cgroup_count -eq 0 ]]; then
+        echo -e "   └── No container cgroups found"
+    fi
+    
+    echo ""
+}
+
+# Namespaces debug information
+show_namespaces_debug_info() {
+    echo -e "${COLOR_BLUE}🏠 NAMESPACES DEBUG INFO${COLOR_RESET}"
+    echo -e "${COLOR_BLUE}========================${COLOR_RESET}"
+    
+    echo -e "${COLOR_GREEN}🔧 Namespace Commands:${COLOR_RESET}"
+    local ns_commands=("unshare" "nsenter" "lsns")
+    for cmd in "${ns_commands[@]}"; do
+        if command -v "$cmd" &> /dev/null; then
+            echo -e "   ✅ $cmd: Available"
+        else
+            echo -e "   ❌ $cmd: Not found"
+        fi
+    done
+    
+    # Show current process namespaces
+    echo -e "\n${COLOR_GREEN}📊 Current Process Namespaces:${COLOR_RESET}"
+    if [[ -d "/proc/$$/ns" ]]; then
+        for ns_file in /proc/$$/ns/*; do
+            if [[ -L "$ns_file" ]]; then
+                local ns_type=$(basename "$ns_file")
+                local ns_id=$(readlink "$ns_file" 2>/dev/null || echo "unknown")
+                echo -e "   └── $ns_type: $ns_id"
+            fi
+        done
+    else
+        echo -e "   └── Namespace info not available"
+    fi
+    
+    # List all namespaces if lsns is available
+    if command -v lsns &> /dev/null; then
+        echo -e "\n${COLOR_GREEN}🌐 All System Namespaces:${COLOR_RESET}"
+        lsns -t net,pid,mnt,uts,ipc,user 2>/dev/null | head -10 | while read -r line; do
+            echo -e "   └── $line"
+        done
+    fi
+    
+    # Check container namespaces
+    echo -e "\n${COLOR_GREEN}🏠 Container Namespace Configs:${COLOR_RESET}"
+    local ns_count=0
+    if [[ -d "$CONTAINERS_DIR" ]]; then
+        for container_dir in "$CONTAINERS_DIR"/*; do
+            if [[ -d "$container_dir/namespaces" ]]; then
+                local container_name=$(basename "$container_dir")
+                ns_count=$((ns_count + 1))
+                
+                echo -e "   🏠 $container_name:"
+                for ns_config in "$container_dir/namespaces"/*.conf; do
+                    if [[ -f "$ns_config" ]]; then
+                        local ns_type=$(basename "$ns_config" .conf)
+                        echo -e "      └── $ns_type: Configured"
+                    fi
+                done
+            fi
+        done
+    fi
+    
+    if [[ $ns_count -eq 0 ]]; then
+        echo -e "   └── No container namespace configs found"
+    fi
+    
+    echo ""
+}
+
+# Enable verbose mode
+enable_verbose_mode() {
+    VERBOSE_MODE=true
+    log_info "Verbose mode enabled" \
+             "Seperti RT yang memberikan penjelasan detail untuk setiap langkah"
+}
+
+# Enable debug mode
+enable_debug_mode() {
+    DEBUG_MODE=true
+    LOG_LEVEL=4  # Set to debug level
+    log_info "Debug mode enabled" \
+             "Seperti RT yang mencatat semua detail teknis untuk troubleshooting"
+}
+
+# Enable monitoring mode
+enable_monitoring_mode() {
+    MONITORING_ENABLED=true
+    log_info "Monitoring mode enabled" \
+             "Seperti RT yang aktif memantau kondisi semua rumah di kompleks"
 }
 
 # Initialize busybox management system
@@ -4329,9 +5192,33 @@ main() {
     # Setup signal handlers
     setup_signal_handlers
     
+    # Parse global flags first
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --verbose)
+                enable_verbose_mode
+                shift
+                ;;
+            --debug)
+                enable_debug_mode
+                shift
+                ;;
+            --monitor)
+                enable_monitoring_mode
+                shift
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+    
+    # Update command after flag parsing
+    command=${1:-""}
+    
     # Check dependencies and privileges for commands that need them
     case "$command" in
-        create-container|run-container|delete-container|cleanup-all|test-network|create-test-network|cleanup-test-network|show-network|test-connectivity|monitor-network|debug-network|list-networks)
+        create-container|run-container|delete-container|cleanup-all|test-network|create-test-network|cleanup-test-network|show-network|test-connectivity|monitor-network|debug-network|list-networks|monitor|show-topology|debug)
             check_dependencies
             check_privileges
             ;;
@@ -4410,13 +5297,37 @@ main() {
         "list-networks")
             list_container_networks
             ;;
+        "monitor")
+            local container_name=$2
+            local duration=${3:-30}
+            if [[ -z "$container_name" ]]; then
+                log_error "Container name required for monitor command" \
+                          "Seperti RT perlu tahu rumah mana yang akan dipantau"
+                echo "Usage: $0 monitor <container_name> [duration_seconds]"
+                exit 1
+            fi
+            monitor_container_resources "$container_name" "$duration"
+            ;;
+        "show-topology")
+            show_network_topology
+            ;;
+        "debug")
+            local component=${2:-"all"}
+            show_debug_info "$component"
+            ;;
         "help"|"--help"|"-h")
-            show_usage
+            local topic=${2:-""}
+            if [[ -n "$topic" ]]; then
+                show_interactive_help "$topic"
+            else
+                show_interactive_help "main"
+            fi
             ;;
         *)
-            log_error "Unknown command: $command"
+            log_error "Unknown command: $command" \
+                      "Seperti RT menerima permintaan yang tidak dimengerti"
             echo ""
-            show_usage
+            show_interactive_help "main"
             exit 1
             ;;
     esac
