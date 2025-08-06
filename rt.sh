@@ -2905,7 +2905,7 @@ show_system_debug_info() {
     df -h /tmp 2>/dev/null | tail -1 | awk '{print "   /tmp: " $3 " used / " $2 " total (" $5 " full)"}'
     
     echo -e "\n${COLOR_GREEN}🔧 Required Commands:${COLOR_RESET}"
-    local commands=("unshare" "nsenter" "ip" "mount" "umount" "cgroups")
+    local commands=("unshare" "nsenter" "ip" "mount" "umount")
     for cmd in "${commands[@]}"; do
         if command -v "$cmd" &> /dev/null; then
             echo -e "   ✅ $cmd: $(command -v "$cmd")"
@@ -2913,6 +2913,15 @@ show_system_debug_info() {
             echo -e "   ❌ $cmd: Not found"
         fi
     done
+
+    # Separate check for cgroups (not a command, but a kernel feature)
+    if [ -d /sys/fs/cgroup ] && [ -f /sys/fs/cgroup/cgroup.controllers ]; then
+        echo -e "   ✅ cgroups: /sys/fs/cgroup (cgroups v2)"
+    elif [ -d /sys/fs/cgroup/memory ] && [ -d /sys/fs/cgroup/cpu ]; then
+        echo -e "   ✅ cgroups: /sys/fs/cgroup (cgroups v1)"
+    else
+        echo -e "   ❌ cgroups: Not found"
+    fi
     
     echo -e "\n${COLOR_GREEN}🏘️  RT Container Runtime:${COLOR_RESET}"
     echo -e "   Script: $0"
