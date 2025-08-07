@@ -7985,14 +7985,25 @@ exec_container_command() {
         # Execute command in container namespaces with proper chroot
         local container_rootfs="$CONTAINERS_DIR/$container_name/rootfs"
 
-        exec nsenter -t "$container_pid" -p -m -u -i -n chroot "$container_rootfs" /bin/busybox sh -c "
+        # Start the command in background and add to cgroup
+        nsenter -t "$container_pid" -p -m -u -i -n chroot "$container_rootfs" /bin/busybox sh -c "
             export PATH=/bin:/sbin:/usr/bin:/usr/sbin
             export HOME=/root
             export USER=root
             export SHELL=/bin/sh
             cd /
             exec $exec_command
-        "
+        " &
+
+        local exec_pid=$!
+
+        # Add the exec process to container cgroup
+        if [[ "$MACOS_MODE" != "true" ]]; then
+            add_process_to_container_cgroups "$container_name" "$exec_pid"
+        fi
+
+        # Wait for the exec process to complete
+        wait $exec_pid
     fi
 }
 
@@ -8063,20 +8074,27 @@ update_container_status() {
 add_process_to_container_cgroups() {
     local container_name=$1
     local pid=$2
-    
-    local memory_cgroup="/sys/fs/cgroup/memory/container-$container_name"
-    local cpu_cgroup="/sys/fs/cgroup/cpu/container-$container_name"
-    
-    # Add to memory cgroup
-    if [[ -d "$memory_cgroup" ]]; then
-        echo "$pid" > "$memory_cgroup/cgroup.procs" 2>/dev/null || true
-        log_debug "Added PID $pid to memory cgroup: $container_name"
-    fi
-    
-    # Add to CPU cgroup
-    if [[ -d "$cpu_cgroup" ]]; then
-        echo "$pid" > "$cpu_cgroup/cgroup.procs" 2>/dev/null || true
-        log_debug "Added PID $pid to CPU cgroup: $container_name"
+
+    # Use cgroup v2 unified hierarchy
+    local cgroup_path="/sys/fs/cgroup/container-$container_name"
+
+    # Add to unified cgroup
+    if [[ -d "$cgroup_path" ]]; then
+        echo "$pid" > "$cgroup_path/cgroup.procs" 2>/dev/null || {
+            log_debug "Failed to add PID $pid to cgroup: $container_name"
+            return 1
+        }
+        log_debug "Added PID $pid to cgroup: $container_name"
+
+        # Verify the process was added
+        if grep -q "^$pid$" "$cgroup_path/cgroup.procs" 2>/dev/null; then
+            log_debug "Verified PID $pid is in cgroup: $container_name"
+        else
+            log_debug "Warning: PID $pid not found in cgroup after adding"
+        fi
+    else
+        log_debug "Cgroup not found: $cgroup_path"
+        return 1
     fi
 }
 
