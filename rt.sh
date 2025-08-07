@@ -9385,6 +9385,9 @@ EOF
 main() {
     local command=${1:-""}
 
+    # Initialize paths and configuration
+    init_paths
+
     # Show usage if no command provided
     if [[ -z "$command" ]]; then
         show_usage
