@@ -163,21 +163,20 @@ demo_networking() {
     echo -e "${PURPLE}📞 Setiap rumah mendapat nomor telepon (IP address)${NC}"
     
     echo -e "\n${CYAN}IP address rumah-jakarta:${NC}"
-    ./rt.sh run rumah-jakarta "ip addr show eth0 | grep inet" &
+    ./rt.sh run rumah-jakarta /bin/sh &
     sleep 2
-    
+    ./rt.sh exec rumah-jakarta "ip addr show eth0 | grep inet"
+
     echo -e "\n${CYAN}IP address rumah-bandung:${NC}"
-    ./rt.sh run rumah-bandung "ip addr show eth0 | grep inet" &
+    ./rt.sh run rumah-bandung /bin/sh &
     sleep 2
-    
-    wait
+    ./rt.sh exec rumah-bandung "ip addr show eth0 | grep inet"
+
+    sleep 1
     
     echo -e "\n${GREEN}Step 3: Testing connectivity${NC}"
     echo -e "${PURPLE}📞 Rumah Jakarta menelepon rumah Bandung...${NC}"
-    ./rt.sh run rumah-jakarta "ping -c 3 10.0.0.3 || echo 'Network test completed'" &
-    sleep 5
-    
-    wait
+    ./rt.sh exec rumah-jakarta "ping -c 3 10.0.0.4 || echo 'Network test completed'"
     
     echo -e "\n${GREEN}✅ Networking demo completed!${NC}"
     echo -e "${PURPLE}🏠 Sistem telepon kompleks berfungsi dengan baik${NC}"
