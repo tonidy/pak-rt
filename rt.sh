@@ -16,10 +16,44 @@ readonly SCRIPT_NAME="RT Container Runtime"
 readonly SCRIPT_VERSION="1.0"
 readonly SCRIPT_AUTHOR="Container Learning Project"
 
-# System paths and directories (will be set based on rootless mode)
+# Detect operating system
+DETECTED_OS=$(uname -s)
+readonly DETECTED_OS
+
+# Detect cgroup version
+detect_cgroup_version() {
+    if [[ "$DETECTED_OS" == "Darwin" ]]; then
+        echo "none"
+    elif mount | grep -q "cgroup2.*cgroup2"; then
+        echo "v2"
+    elif [[ -d "/sys/fs/cgroup/memory" ]] && [[ -f "/sys/fs/cgroup/memory/memory.limit_in_bytes" ]]; then
+        echo "v1"
+    else
+        echo "unknown"
+    fi
+}
+
+CGROUP_VERSION=$(detect_cgroup_version)
+readonly CGROUP_VERSION
+
+# System paths and directories (will be set based on rootless mode and OS)
 CONTAINERS_DIR="/tmp/containers"
 BUSYBOX_PATH="/tmp/containers/busybox"
-readonly CGROUP_ROOT="/sys/fs/cgroup"
+
+# Set cgroup root and mode based on OS and cgroup version
+if [[ "$DETECTED_OS" == "Darwin" ]]; then
+    readonly CGROUP_ROOT=""  # macOS doesn't have cgroups
+    readonly MACOS_MODE=true
+    readonly CGROUP_V2_MODE=false
+else
+    readonly CGROUP_ROOT="/sys/fs/cgroup"
+    readonly MACOS_MODE=false
+    if [[ "$CGROUP_VERSION" == "v2" ]]; then
+        readonly CGROUP_V2_MODE=true
+    else
+        readonly CGROUP_V2_MODE=false
+    fi
+fi
 
 # Network configuration
 readonly CONTAINER_NETWORK="10.0.0.0/24"
@@ -61,6 +95,29 @@ init_paths() {
         CONTAINERS_DIR="$HOME/.local/share/rt-containers"
         BUSYBOX_PATH="$CONTAINERS_DIR/busybox"
     fi
+}
+
+# Check OS compatibility and show appropriate warnings
+check_os_compatibility() {
+    log_debug "Checking OS compatibility" \
+              "Seperti RT memeriksa apakah sistem mendukung operasi yang diperlukan"
+
+    if [[ "$MACOS_MODE" == "true" ]]; then
+        log_warn "Running on macOS - container features will be limited" \
+                 "Berjalan di macOS - fitur container akan terbatas"
+        log_info "macOS limitations:" \
+                 "Keterbatasan macOS:"
+        echo "   • No cgroups support (resource limits disabled)"
+        echo "   • No Linux namespaces (limited isolation)"
+        echo "   • Network features may not work as expected"
+        echo "   • This is primarily for educational purposes"
+        echo ""
+        log_info "For full container functionality, use Linux or Docker Desktop" \
+                 "Untuk fungsi container penuh, gunakan Linux atau Docker Desktop"
+        return 1
+    fi
+
+    return 0
 }
 
 # Monitoring intervals (seconds)
@@ -5209,6 +5266,13 @@ create_cgroup_structure() {
     log_step 1 "Creating cgroup structure for container: $container_name" \
               "Seperti RT yang menyiapkan sistem pembatasan listrik dan air untuk rumah baru"
 
+    # Skip cgroups on macOS
+    if [[ "$MACOS_MODE" == "true" ]]; then
+        log_warn "Skipping cgroup setup on macOS - resource limits not supported" \
+                 "Melewati pengaturan cgroup di macOS - pembatasan resource tidak didukung"
+        return 0
+    fi
+
     # Skip cgroups in rootless mode if not supported
     if [[ "$ROOTLESS_MODE" == "true" ]] && ! check_rootless_cgroups; then
         log_warn "Skipping cgroup setup in rootless mode - resource limits disabled" \
@@ -5220,44 +5284,88 @@ create_cgroup_structure() {
     validate_memory_limit "$memory_mb" || return 1
     validate_cpu_percentage "$cpu_percent" || return 1
 
-    # Check cgroup root permissions before attempting to create directories
-    if [[ ! -w "$CGROUP_ROOT/memory" ]] || [[ ! -w "$CGROUP_ROOT/cpu" ]]; then
-        log_error "No write permission to cgroup subsystems" \
-                  "Tidak ada izin menulis ke subsistem cgroup"
-        log_info "Memory cgroup writable: $(test -w "$CGROUP_ROOT/memory" && echo "Yes" || echo "No")" \
-                 "Cgroup memori dapat ditulis: $(test -w "$CGROUP_ROOT/memory" && echo "Ya" || echo "Tidak")"
-        log_info "CPU cgroup writable: $(test -w "$CGROUP_ROOT/cpu" && echo "Yes" || echo "No")" \
-                 "Cgroup CPU dapat ditulis: $(test -w "$CGROUP_ROOT/cpu" && echo "Ya" || echo "Tidak")"
-        show_cgroup_permission_help
-        return 1
+    # Set cgroup paths based on version
+    local memory_cgroup
+    local cpu_cgroup
+
+    if [[ "$CGROUP_V2_MODE" == "true" ]]; then
+        # cgroups v2: unified hierarchy
+        memory_cgroup="$CGROUP_ROOT/container-$container_name"
+        cpu_cgroup="$CGROUP_ROOT/container-$container_name"
+
+        # Check cgroup root permissions
+        if [[ ! -w "$CGROUP_ROOT" ]]; then
+            log_error "No write permission to cgroup root" \
+                      "Tidak ada izin menulis ke root cgroup"
+            show_cgroup_permission_help
+            return 1
+        fi
+    else
+        # cgroups v1: separate hierarchies
+        memory_cgroup="$CGROUP_ROOT/memory/container-$container_name"
+        cpu_cgroup="$CGROUP_ROOT/cpu/container-$container_name"
+
+        # Check cgroup subsystem permissions
+        if [[ ! -w "$CGROUP_ROOT/memory" ]] || [[ ! -w "$CGROUP_ROOT/cpu" ]]; then
+            log_error "No write permission to cgroup subsystems" \
+                      "Tidak ada izin menulis ke subsistem cgroup"
+            log_info "Memory cgroup writable: $(test -w "$CGROUP_ROOT/memory" && echo "Yes" || echo "No")" \
+                     "Cgroup memori dapat ditulis: $(test -w "$CGROUP_ROOT/memory" && echo "Ya" || echo "Tidak")"
+            log_info "CPU cgroup writable: $(test -w "$CGROUP_ROOT/cpu" && echo "Yes" || echo "No")" \
+                     "Cgroup CPU dapat ditulis: $(test -w "$CGROUP_ROOT/cpu" && echo "Ya" || echo "Tidak")"
+            show_cgroup_permission_help
+            return 1
+        fi
     fi
 
-    # Create cgroup directories
-    local memory_cgroup="$CGROUP_ROOT/memory/container-$container_name"
-    local cpu_cgroup="$CGROUP_ROOT/cpu/container-$container_name"
-    
-    log_info "Creating memory cgroup: $memory_cgroup" \
-             "Seperti menyiapkan meteran listrik khusus untuk rumah"
-    
-    if ! create_directory "$memory_cgroup" 755; then
-        log_error "Failed to create memory cgroup directory: $memory_cgroup" \
-                  "Gagal menyiapkan meteran listrik rumah: $memory_cgroup"
-        log_info "Check parent directory permissions: $(ls -ld "$CGROUP_ROOT/memory" 2>/dev/null || echo 'Directory not found')" \
-                 "Periksa izin direktori induk: $(ls -ld "$CGROUP_ROOT/memory" 2>/dev/null || echo 'Direktori tidak ditemukan')"
-        show_cgroup_permission_help
-        return 1
-    fi
+    if [[ "$CGROUP_V2_MODE" == "true" ]]; then
+        # cgroups v2: create single unified cgroup
+        log_info "Creating unified cgroup (v2): $memory_cgroup" \
+                 "Seperti menyiapkan meteran listrik dan waktu kerja terpadu untuk rumah"
 
-    log_info "Creating CPU cgroup: $cpu_cgroup" \
-             "Seperti menyiapkan pembagi waktu kerja untuk rumah"
+        if ! create_directory "$memory_cgroup" 755; then
+            log_error "Failed to create cgroup directory: $memory_cgroup" \
+                      "Gagal menyiapkan meteran terpadu rumah: $memory_cgroup"
+            log_info "Check parent directory permissions: $(ls -ld "$CGROUP_ROOT" 2>/dev/null || echo 'Directory not found')" \
+                     "Periksa izin direktori induk: $(ls -ld "$CGROUP_ROOT" 2>/dev/null || echo 'Direktori tidak ditemukan')"
+            show_cgroup_permission_help
+            return 1
+        fi
 
-    if ! create_directory "$cpu_cgroup" 755; then
-        log_error "Failed to create CPU cgroup directory: $cpu_cgroup" \
-                  "Gagal menyiapkan pembagi waktu kerja rumah: $cpu_cgroup"
-        log_info "Check parent directory permissions: $(ls -ld "$CGROUP_ROOT/cpu" 2>/dev/null || echo 'Directory not found')" \
-                 "Periksa izin direktori induk: $(ls -ld "$CGROUP_ROOT/cpu" 2>/dev/null || echo 'Direktori tidak ditemukan')"
-        show_cgroup_permission_help
-        return 1
+        # Enable memory and cpu controllers for the cgroup
+        log_info "Enabling memory and cpu controllers for cgroup v2" \
+                 "Mengaktifkan pengontrol memori dan CPU untuk cgroup v2"
+
+        # Enable controllers in parent cgroup
+        if [[ -f "$CGROUP_ROOT/cgroup.subtree_control" ]]; then
+            echo "+memory +cpu" > "$CGROUP_ROOT/cgroup.subtree_control" 2>/dev/null || true
+        fi
+
+    else
+        # cgroups v1: create separate memory and cpu cgroups
+        log_info "Creating memory cgroup (v1): $memory_cgroup" \
+                 "Seperti menyiapkan meteran listrik khusus untuk rumah"
+
+        if ! create_directory "$memory_cgroup" 755; then
+            log_error "Failed to create memory cgroup directory: $memory_cgroup" \
+                      "Gagal menyiapkan meteran listrik rumah: $memory_cgroup"
+            log_info "Check parent directory permissions: $(ls -ld "$CGROUP_ROOT/memory" 2>/dev/null || echo 'Directory not found')" \
+                     "Periksa izin direktori induk: $(ls -ld "$CGROUP_ROOT/memory" 2>/dev/null || echo 'Direktori tidak ditemukan')"
+            show_cgroup_permission_help
+            return 1
+        fi
+
+        log_info "Creating CPU cgroup (v1): $cpu_cgroup" \
+                 "Seperti menyiapkan pembagi waktu kerja untuk rumah"
+
+        if ! create_directory "$cpu_cgroup" 755; then
+            log_error "Failed to create CPU cgroup directory: $cpu_cgroup" \
+                      "Gagal menyiapkan pembagi waktu kerja rumah: $cpu_cgroup"
+            log_info "Check parent directory permissions: $(ls -ld "$CGROUP_ROOT/cpu" 2>/dev/null || echo 'Directory not found')" \
+                     "Periksa izin direktori induk: $(ls -ld "$CGROUP_ROOT/cpu" 2>/dev/null || echo 'Direktori tidak ditemukan')"
+            show_cgroup_permission_help
+            return 1
+        fi
     fi
     
     # Store cgroup paths for later use
@@ -5284,15 +5392,32 @@ EOF
 set_memory_limit() {
     local container_name=$1
     local memory_mb=$2
-    
+
     log_step 2 "Setting memory limit for container: $container_name to ${memory_mb}MB" \
               "Seperti RT yang mengatur batas pemakaian listrik rumah: ${memory_mb}MB"
-    
+
+    # Skip memory limits on macOS
+    if [[ "$MACOS_MODE" == "true" ]]; then
+        log_warn "Memory limits not supported on macOS - skipping" \
+                 "Pembatasan memori tidak didukung di macOS - dilewati"
+        return 0
+    fi
+
     # Validate memory limit
     validate_memory_limit "$memory_mb" || return 1
-    
-    local memory_cgroup="$CGROUP_ROOT/memory/container-$container_name"
-    
+
+    # Set memory cgroup path based on version
+    local memory_cgroup
+    local memory_limit_file
+
+    if [[ "$CGROUP_V2_MODE" == "true" ]]; then
+        memory_cgroup="$CGROUP_ROOT/container-$container_name"
+        memory_limit_file="$memory_cgroup/memory.max"
+    else
+        memory_cgroup="$CGROUP_ROOT/memory/container-$container_name"
+        memory_limit_file="$memory_cgroup/memory.limit_in_bytes"
+    fi
+
     # Check if cgroup exists
     if [[ ! -d "$memory_cgroup" ]]; then
         log_error "Memory cgroup does not exist: $memory_cgroup" \
@@ -5301,13 +5426,13 @@ set_memory_limit() {
     fi
 
     # Check if we have write permission to the memory limit file
-    if [[ ! -w "$memory_cgroup/memory.limit_in_bytes" ]]; then
-        log_error "No write permission to memory limit file: $memory_cgroup/memory.limit_in_bytes" \
+    if [[ ! -w "$memory_limit_file" ]]; then
+        log_error "No write permission to memory limit file: $memory_limit_file" \
                   "Tidak ada izin menulis ke file pembatas memori"
         log_info "Current user: $(whoami), EUID: $EUID" \
                  "User saat ini: $(whoami), EUID: $EUID"
-        log_info "File permissions: $(ls -l "$memory_cgroup/memory.limit_in_bytes" 2>/dev/null || echo 'File not found')" \
-                 "Izin file: $(ls -l "$memory_cgroup/memory.limit_in_bytes" 2>/dev/null || echo 'File tidak ditemukan')"
+        log_info "File permissions: $(ls -l "$memory_limit_file" 2>/dev/null || echo 'File not found')" \
+                 "Izin file: $(ls -l "$memory_limit_file" 2>/dev/null || echo 'File tidak ditemukan')"
         log_info "Try running with: sudo $0 [command]" \
                  "Coba jalankan dengan: sudo $0 [command]"
         return 1
@@ -5315,14 +5440,14 @@ set_memory_limit() {
     
     # Convert MB to bytes
     local memory_bytes=$((memory_mb * 1024 * 1024))
-    
+
     log_info "Setting memory limit to $memory_bytes bytes" \
              "Seperti mengatur batas listrik rumah: ${memory_mb}MB"
-    
+
     # Set memory limit with better error handling
-    if ! echo "$memory_bytes" > "$memory_cgroup/memory.limit_in_bytes" 2>/dev/null; then
+    if ! echo "$memory_bytes" > "$memory_limit_file" 2>/dev/null; then
         # Check if it's a permission issue
-        if [[ ! -w "$memory_cgroup/memory.limit_in_bytes" ]]; then
+        if [[ ! -w "$memory_limit_file" ]]; then
             log_error "Permission denied: Cannot write to cgroup memory limit file" \
                       "Akses ditolak: Tidak bisa menulis ke file pembatas memori"
             show_cgroup_permission_help
@@ -5332,23 +5457,34 @@ set_memory_limit() {
         fi
         return 1
     fi
-    
-    # Set memory+swap limit (same as memory to prevent swap usage)
-    if [[ -f "$memory_cgroup/memory.memsw.limit_in_bytes" ]]; then
-        if ! echo "$memory_bytes" > "$memory_cgroup/memory.memsw.limit_in_bytes"; then
-            log_warn "Failed to set memory+swap limit, continuing without swap limit" \
-                     "Tidak bisa mengatur batas swap, tapi listrik utama sudah dibatasi"
+
+    if [[ "$CGROUP_V2_MODE" == "true" ]]; then
+        # cgroups v2: set swap limit separately
+        local swap_limit_file="$memory_cgroup/memory.swap.max"
+        if [[ -f "$swap_limit_file" ]]; then
+            if ! echo "0" > "$swap_limit_file" 2>/dev/null; then
+                log_warn "Failed to disable swap, continuing with swap enabled" \
+                         "Tidak bisa menonaktifkan swap, melanjutkan dengan swap aktif"
+            fi
+        fi
+    else
+        # cgroups v1: set memory+swap limit (same as memory to prevent swap usage)
+        if [[ -f "$memory_cgroup/memory.memsw.limit_in_bytes" ]]; then
+            if ! echo "$memory_bytes" > "$memory_cgroup/memory.memsw.limit_in_bytes"; then
+                log_warn "Failed to set memory+swap limit, continuing without swap limit" \
+                         "Tidak bisa mengatur batas swap, tapi listrik utama sudah dibatasi"
+            fi
+        fi
+
+        # Enable OOM killer for the cgroup
+        if [[ -f "$memory_cgroup/memory.oom_control" ]]; then
+            echo 0 > "$memory_cgroup/memory.oom_control" 2>/dev/null || true
         fi
     fi
-    
-    # Enable OOM killer for the cgroup
-    if [[ -f "$memory_cgroup/memory.oom_control" ]]; then
-        echo 0 > "$memory_cgroup/memory.oom_control" 2>/dev/null || true
-    fi
-    
+
     # Verify the limit was set correctly
     local actual_limit
-    if actual_limit=$(cat "$memory_cgroup/memory.limit_in_bytes" 2>/dev/null); then
+    if actual_limit=$(cat "$memory_limit_file" 2>/dev/null); then
         local actual_mb=$((actual_limit / 1024 / 1024))
         log_info "Memory limit verified: ${actual_mb}MB" \
                  "Batas listrik rumah terpasang: ${actual_mb}MB"
@@ -5367,15 +5503,32 @@ set_memory_limit() {
 set_cpu_limit() {
     local container_name=$1
     local cpu_percent=$2
-    
+
     log_step 3 "Setting CPU limit for container: $container_name to ${cpu_percent}%" \
               "Seperti RT yang mengatur pembagian waktu kerja rumah: ${cpu_percent}%"
-    
+
+    # Skip CPU limits on macOS
+    if [[ "$MACOS_MODE" == "true" ]]; then
+        log_warn "CPU limits not supported on macOS - skipping" \
+                 "Pembatasan CPU tidak didukung di macOS - dilewati"
+        return 0
+    fi
+
     # Validate CPU percentage
     validate_cpu_percentage "$cpu_percent" || return 1
-    
-    local cpu_cgroup="$CGROUP_ROOT/cpu/container-$container_name"
-    
+
+    # Set CPU cgroup path and files based on version
+    local cpu_cgroup
+    local cpu_limit_file
+
+    if [[ "$CGROUP_V2_MODE" == "true" ]]; then
+        cpu_cgroup="$CGROUP_ROOT/container-$container_name"
+        cpu_limit_file="$cpu_cgroup/cpu.max"
+    else
+        cpu_cgroup="$CGROUP_ROOT/cpu/container-$container_name"
+        cpu_limit_file="$cpu_cgroup/cpu.cfs_quota_us"
+    fi
+
     # Check if cgroup exists
     if [[ ! -d "$cpu_cgroup" ]]; then
         log_error "CPU cgroup does not exist: $cpu_cgroup" \
@@ -5384,8 +5537,8 @@ set_cpu_limit() {
     fi
 
     # Check if we have write permission to the CPU limit files
-    if [[ ! -w "$cpu_cgroup/cpu.cfs_period_us" ]] || [[ ! -w "$cpu_cgroup/cpu.cfs_quota_us" ]]; then
-        log_error "No write permission to CPU limit files in: $cpu_cgroup" \
+    if [[ ! -w "$cpu_limit_file" ]]; then
+        log_error "No write permission to CPU limit file: $cpu_limit_file" \
                   "Tidak ada izin menulis ke file pembatas CPU"
         log_info "Current user: $(whoami), EUID: $EUID" \
                  "User saat ini: $(whoami), EUID: $EUID"
@@ -5393,58 +5546,98 @@ set_cpu_limit() {
                  "Coba jalankan dengan: sudo $0 [command]"
         return 1
     fi
-    
-    # CPU cgroup uses CFS (Completely Fair Scheduler)
-    # Period is typically 100000 microseconds (100ms)
-    local cfs_period=100000
-    local cfs_quota=$((cfs_period * cpu_percent / 100))
-    
-    log_info "Setting CPU quota to $cfs_quota/$cfs_period (${cpu_percent}%)" \
-             "Seperti mengatur waktu kerja: ${cpu_percent}% dari total waktu"
-    
-    # Set CFS period
-    if ! echo "$cfs_period" > "$cpu_cgroup/cpu.cfs_period_us" 2>/dev/null; then
-        if [[ ! -w "$cpu_cgroup/cpu.cfs_period_us" ]]; then
-            log_error "Permission denied: Cannot write to CPU period file" \
-                      "Akses ditolak: Tidak bisa menulis ke file periode CPU"
-            show_cgroup_permission_help
-        else
-            log_error "Failed to set CPU period (unknown error)" \
-                      "Gagal mengatur periode waktu kerja (error tidak diketahui)"
-        fi
-        return 1
-    fi
 
-    # Set CFS quota
-    if ! echo "$cfs_quota" > "$cpu_cgroup/cpu.cfs_quota_us" 2>/dev/null; then
-        if [[ ! -w "$cpu_cgroup/cpu.cfs_quota_us" ]]; then
-            log_error "Permission denied: Cannot write to CPU quota file" \
-                      "Akses ditolak: Tidak bisa menulis ke file kuota CPU"
-            show_cgroup_permission_help
+    if [[ "$CGROUP_V2_MODE" == "true" ]]; then
+        # cgroups v2: use cpu.max format "quota period"
+        local cfs_period=100000
+        local cfs_quota=$((cfs_period * cpu_percent / 100))
+
+        log_info "Setting CPU limit to $cfs_quota/$cfs_period (${cpu_percent}%)" \
+                 "Seperti mengatur waktu kerja: ${cpu_percent}% dari total waktu"
+
+        # Set CPU limit in v2 format: "quota period"
+        if ! echo "$cfs_quota $cfs_period" > "$cpu_limit_file" 2>/dev/null; then
+            if [[ ! -w "$cpu_limit_file" ]]; then
+                log_error "Permission denied: Cannot write to CPU limit file" \
+                          "Akses ditolak: Tidak bisa menulis ke file pembatas CPU"
+                show_cgroup_permission_help
+            else
+                log_error "Failed to set CPU limit (unknown error)" \
+                          "Gagal mengatur pembatasan waktu kerja (error tidak diketahui)"
+            fi
+            return 1
+        fi
+
+        # Set CPU weight (relative weight, 100 = default)
+        local cpu_weight=$((100 * cpu_percent / 100))
+        if [[ -f "$cpu_cgroup/cpu.weight" ]]; then
+            if ! echo "$cpu_weight" > "$cpu_cgroup/cpu.weight" 2>/dev/null; then
+                log_warn "Failed to set CPU weight, continuing with limit only" \
+                         "Tidak bisa mengatur bobot relatif, tapi pembatasan sudah diatur"
+            fi
+        fi
+
+        # Verify the limit was set correctly
+        local actual_limit
+        if actual_limit=$(cat "$cpu_limit_file" 2>/dev/null); then
+            log_info "CPU limit verified: $actual_limit" \
+                     "Pembagian waktu kerja terpasang: ${cpu_percent}%"
         else
-            log_error "Failed to set CPU quota (unknown error)" \
-                      "Gagal mengatur kuota waktu kerja (error tidak diketahui)"
+            log_warn "Could not verify CPU limit" \
+                     "Tidak bisa memverifikasi pembatasan waktu kerja"
         fi
-        return 1
-    fi
-    
-    # Set CPU shares (relative weight, 1024 = 100%)
-    local cpu_shares=$((1024 * cpu_percent / 100))
-    if [[ -f "$cpu_cgroup/cpu.shares" ]]; then
-        if ! echo "$cpu_shares" > "$cpu_cgroup/cpu.shares"; then
-            log_warn "Failed to set CPU shares, continuing with quota only" \
-                     "Tidak bisa mengatur bobot relatif, tapi kuota sudah diatur"
-        fi
-    fi
-    
-    # Verify the limit was set correctly
-    local actual_period actual_quota
-    if actual_period=$(cat "$cpu_cgroup/cpu.cfs_period_us" 2>/dev/null) && \
-       actual_quota=$(cat "$cpu_cgroup/cpu.cfs_quota_us" 2>/dev/null); then
-        local actual_percent=$((actual_quota * 100 / actual_period))
-        log_info "CPU limit verified: ${actual_percent}%" \
-                 "Pembagian waktu kerja terpasang: ${actual_percent}%"
+
     else
+        # cgroups v1: use separate period and quota files
+        local cfs_period=100000
+        local cfs_quota=$((cfs_period * cpu_percent / 100))
+
+        log_info "Setting CPU quota to $cfs_quota/$cfs_period (${cpu_percent}%)" \
+                 "Seperti mengatur waktu kerja: ${cpu_percent}% dari total waktu"
+
+        # Set CFS period
+        if ! echo "$cfs_period" > "$cpu_cgroup/cpu.cfs_period_us" 2>/dev/null; then
+            if [[ ! -w "$cpu_cgroup/cpu.cfs_period_us" ]]; then
+                log_error "Permission denied: Cannot write to CPU period file" \
+                          "Akses ditolak: Tidak bisa menulis ke file periode CPU"
+                show_cgroup_permission_help
+            else
+                log_error "Failed to set CPU period (unknown error)" \
+                          "Gagal mengatur periode waktu kerja (error tidak diketahui)"
+            fi
+            return 1
+        fi
+
+        # Set CFS quota
+        if ! echo "$cfs_quota" > "$cpu_cgroup/cpu.cfs_quota_us" 2>/dev/null; then
+            if [[ ! -w "$cpu_cgroup/cpu.cfs_quota_us" ]]; then
+                log_error "Permission denied: Cannot write to CPU quota file" \
+                          "Akses ditolak: Tidak bisa menulis ke file kuota CPU"
+                show_cgroup_permission_help
+            else
+                log_error "Failed to set CPU quota (unknown error)" \
+                          "Gagal mengatur kuota waktu kerja (error tidak diketahui)"
+            fi
+            return 1
+        fi
+
+        # Set CPU shares (relative weight, 1024 = 100%)
+        local cpu_shares=$((1024 * cpu_percent / 100))
+        if [[ -f "$cpu_cgroup/cpu.shares" ]]; then
+            if ! echo "$cpu_shares" > "$cpu_cgroup/cpu.shares"; then
+                log_warn "Failed to set CPU shares, continuing with quota only" \
+                         "Tidak bisa mengatur bobot relatif, tapi kuota sudah diatur"
+            fi
+        fi
+
+        # Verify the limit was set correctly
+        local actual_period actual_quota
+        if actual_period=$(cat "$cpu_cgroup/cpu.cfs_period_us" 2>/dev/null) && \
+           actual_quota=$(cat "$cpu_cgroup/cpu.cfs_quota_us" 2>/dev/null); then
+            local actual_percent=$((actual_quota * 100 / actual_period))
+            log_info "CPU limit verified: ${actual_percent}%" \
+                     "Pembagian waktu kerja terpasang: ${actual_percent}%"
+        else
         log_warn "Could not verify CPU limit" \
                  "Tidak bisa memverifikasi pembagian waktu kerja"
     fi
@@ -7587,13 +7780,29 @@ EOF
 # Main function (to be implemented in later tasks)
 main() {
     local command=${1:-""}
-    
+
     # Show usage if no command provided
     if [[ -z "$command" ]]; then
         show_usage
         exit 0
     fi
-    
+
+    # Check OS compatibility first
+    if [[ "$MACOS_MODE" == "true" ]]; then
+        check_os_compatibility
+        echo ""
+        read -p "Continue anyway for educational purposes? (y/N): " -n 1 -r
+        echo ""
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            log_info "Exiting. For full functionality, use Linux or Docker Desktop" \
+                     "Keluar. Untuk fungsi penuh, gunakan Linux atau Docker Desktop"
+            exit 0
+        fi
+        log_info "Continuing in educational mode with limited functionality" \
+                 "Melanjutkan dalam mode edukasi dengan fungsi terbatas"
+        echo ""
+    fi
+
     # Setup signal handlers
     setup_signal_handlers
     
