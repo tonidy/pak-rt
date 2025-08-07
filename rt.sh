@@ -7782,7 +7782,7 @@ start_container_process() {
         log_info "Running with Linux namespace isolation" \
                  "Berjalan dengan isolasi namespace Linux"
 
-        # Create a simple script to run in container
+        # Create a simple script to run in container with proper variable substitution
         local container_script="$container_rootfs/run_container.sh"
         cat > "$container_script" << EOF
 #!/bin/busybox sh
@@ -7795,26 +7795,29 @@ mount -t proc proc /proc 2>/dev/null || true
 mount -t sysfs sysfs /sys 2>/dev/null || true
 mount -t tmpfs tmpfs /tmp 2>/dev/null || true
 cd /
-if [ '$command_to_run' = '/bin/sh' ]; then
-    while true; do sleep 3600; done
+# Execute the command - if it's /bin/sh, run interactive shell, otherwise run the command
+if [ "$command_to_run" = "/bin/sh" ]; then
+    # For background containers, just sleep to keep container alive
+    exec /bin/busybox sh -c 'while true; do sleep 3600; done'
 else
     exec $command_to_run
 fi
 EOF
         chmod +x "$container_script"
 
-        # Start container with simpler command - skip network namespace for now
-        local log_file="$CONTAINERS_DIR/$container_name/container.log"
+        # Start container with simplest possible approach
+        log_info "Starting container process..." \
+                 "Memulai proses container..."
+
+        # Use setsid to create new session and avoid terminal issues
         if [[ "$ROOTLESS_MODE" == "true" ]]; then
             # Rootless mode - use user namespaces
-            nohup unshare --pid --mount --uts --ipc --user --map-root-user \
-                chroot "$container_rootfs" /run_container.sh \
-                > "$log_file" 2>&1 &
+            setsid unshare --pid --mount --uts --ipc --user --map-root-user \
+                chroot "$container_rootfs" /run_container.sh </dev/null >/dev/null 2>&1 &
         else
             # Root mode - use basic namespaces (skip network for simplicity)
-            nohup unshare --pid --mount --uts --ipc \
-                chroot "$container_rootfs" /run_container.sh \
-                > "$log_file" 2>&1 &
+            setsid unshare --pid --mount --uts --ipc \
+                chroot "$container_rootfs" /run_container.sh </dev/null >/dev/null 2>&1 &
         fi
     fi
 
