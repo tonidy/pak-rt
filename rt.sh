@@ -7341,9 +7341,9 @@ cmd_list_containers() {
     fi
     
     echo ""
-    echo "🏘️  RT Container Runtime - Daftar Rumah Kompleks"
+    echo "🏘️  RT Container Runtime - Daftar Container/Rumah Kompleks"
     echo "=================================================="
-    printf "%-20s %-10s %-15s %-15s %-20s\n" "NAMA RUMAH" "STATUS" "RAM (MB)" "CPU (%)" "IP ADDRESS"
+    printf "%-20s %-10s %-15s %-15s %-20s\n" "NAMA CONTAINER" "STATUS" "RAM (MB)" "CPU (%)" "IP ADDRESS"
     echo "--------------------------------------------------"
     
     for container_name in "${containers[@]}"; do
@@ -7465,8 +7465,11 @@ cmd_exec_container() {
         return 1
     fi
 
-    log_info "Pak RT sedang memasuki rumah '$container_name' untuk menjalankan: $exec_command" \
-             "Seperti RT yang berkunjung ke rumah warga untuk melakukan aktivitas"
+    # Only show info logs in verbose mode
+    if [[ "$VERBOSE_MODE" == "true" ]]; then
+        log_info "Pak RT sedang memasuki rumah '$container_name' untuk menjalankan: $exec_command" \
+                 "Seperti RT yang berkunjung ke rumah warga untuk melakukan aktivitas"
+    fi
 
     # Execute command in container
     exec_container_command "$container_name" "$exec_command"
@@ -7876,8 +7879,11 @@ exec_container_command() {
         return 1
     fi
 
-    log_info "Executing command in container: $container_name" \
-             "Menjalankan perintah di rumah: $container_name"
+    # Only show info logs in verbose mode
+    if [[ "$VERBOSE_MODE" == "true" ]]; then
+        log_info "Executing command in container: $container_name" \
+                 "Menjalankan perintah di rumah: $container_name"
+    fi
 
     if [[ "$MACOS_MODE" == "true" ]]; then
         log_warn "Exec not fully supported in macOS mode" \
@@ -7887,8 +7893,10 @@ exec_container_command() {
         return 1
     else
         # Use nsenter to enter the container namespaces
-        log_info "Entering container namespaces..." \
-                 "Memasuki ruang nama container..."
+        if [[ "$VERBOSE_MODE" == "true" ]]; then
+            log_info "Entering container namespaces..." \
+                     "Memasuki ruang nama container..."
+        fi
 
         # Execute command in container namespaces
         exec nsenter -t "$container_pid" -p -m -u -i -n /bin/busybox sh -c "
