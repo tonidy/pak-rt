@@ -7786,28 +7786,18 @@ start_container_process() {
         log_info "Starting container with busybox static binary..." \
                  "Memulai container dengan busybox static binary..."
 
-        # Create minimal init script using busybox static
-        local init_script="$container_rootfs/init"
-        cat > "$init_script" << 'EOF'
-#!/bin/busybox sh
-# Simple container init using busybox
-/bin/busybox hostname $(cat /etc/hostname 2>/dev/null || echo container)
-/bin/busybox mount -t proc proc /proc 2>/dev/null || true
-/bin/busybox mount -t tmpfs tmpfs /tmp 2>/dev/null || true
-cd /
-# Keep container alive with simple sleep
-while true; do
-    /bin/busybox sleep 3600
-done
-EOF
-        chmod +x "$init_script"
+        # Use direct busybox command without complex script
+        # The issue is that shell scripts can have fork problems in containers
+        # Let's use busybox directly as PID 1
 
         # Create hostname file
         echo "$container_name" > "$container_rootfs/etc/hostname"
 
-        # Start container with busybox as init
-        unshare --pid --mount --uts --ipc \
-            chroot "$container_rootfs" /init &
+        # Start container with busybox directly - use --fork for PID namespace
+        # The --fork is crucial for PID namespace to work properly
+        unshare --pid --mount --uts --ipc --fork \
+            chroot "$container_rootfs" \
+            /bin/busybox sh -c 'hostname $(cat /etc/hostname 2>/dev/null || echo container); mount -t proc proc /proc 2>/dev/null; exec /bin/busybox sleep 999999999' &
     fi
 
     local container_pid=$!
