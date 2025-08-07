@@ -1503,25 +1503,125 @@ audit_container_security() {
 cmd_security_audit() {
     local scope=${1:-"all"}
     local container_name=${2:-""}
-    
+
     log_info "Starting security audit..." \
              "Seperti RT memulai inspeksi keamanan kompleks"
-    
+
     init_error_handling
     set_operation_context "security_audit" "$scope"
-    
+
     if ! perform_security_audit "$scope" "$container_name"; then
         log_error "Security audit failed" \
                   "Audit keamanan gagal"
         clear_operation_context "security_audit"
         return 1
     fi
-    
+
     clear_operation_context "security_audit"
     log_success "Security audit completed" \
                 "Audit keamanan selesai"
-    
+
     return 0
+}
+
+# Install busybox command handler
+cmd_install_busybox() {
+    log_info "Installing busybox-static package..." \
+             "Seperti RT menginstall peralatan standar untuk kompleks"
+
+    # Check if running as root
+    if [[ $EUID -ne 0 ]]; then
+        log_error "Root privileges required to install packages" \
+                  "Diperlukan wewenang root untuk menginstall paket"
+        echo "Please run: sudo $0 install-busybox"
+        return 1
+    fi
+
+    # Check if apt is available
+    if ! command -v apt &> /dev/null; then
+        log_error "Package manager 'apt' not found" \
+                  "Sistem paket 'apt' tidak ditemukan"
+        echo "This command only works on Debian/Ubuntu systems"
+        return 1
+    fi
+
+    # Update package list
+    log_info "Updating package list..." \
+             "Memperbarui daftar paket..."
+    if ! apt update; then
+        log_error "Failed to update package list" \
+                  "Gagal memperbarui daftar paket"
+        return 1
+    fi
+
+    # Install busybox-static
+    log_info "Installing busybox-static..." \
+             "Menginstall busybox-static..."
+    if apt install -y busybox-static; then
+        log_success "Busybox-static installed successfully" \
+                    "Busybox-static berhasil diinstall"
+
+        # Verify installation
+        if command -v busybox &> /dev/null; then
+            local busybox_version=$(busybox --help 2>&1 | head -1 || echo "Unknown version")
+            log_info "Installed version: $busybox_version" \
+                     "Versi yang terinstall: $busybox_version"
+        fi
+
+        return 0
+    else
+        log_error "Failed to install busybox-static" \
+                  "Gagal menginstall busybox-static"
+        return 1
+    fi
+}
+
+# Setup busybox command handler - force copy from system
+cmd_setup_busybox() {
+    log_info "Setting up busybox binary from system..." \
+             "Seperti RT menyiapkan peralatan busybox dari sistem"
+
+    # Check if running as root for better permissions
+    if [[ $EUID -ne 0 ]]; then
+        log_warn "Not running as root - some operations may fail" \
+                 "Tidak berjalan sebagai root - beberapa operasi mungkin gagal"
+    fi
+
+    # Force remove existing busybox if any
+    if [[ -f "$BUSYBOX_PATH" ]]; then
+        log_info "Removing existing busybox at $BUSYBOX_PATH" \
+                 "Menghapus busybox yang ada di $BUSYBOX_PATH"
+        rm -f "$BUSYBOX_PATH"
+    fi
+
+    # Try to setup busybox binary
+    if setup_busybox_binary; then
+        log_success "Busybox setup completed successfully" \
+                    "Setup busybox berhasil diselesaikan"
+
+        # Show busybox info
+        if [[ -f "$BUSYBOX_PATH" ]] && [[ -x "$BUSYBOX_PATH" ]]; then
+            local busybox_info=$("$BUSYBOX_PATH" --help 2>&1 | head -1 || echo "Unknown version")
+            log_info "Busybox ready at: $BUSYBOX_PATH" \
+                     "Busybox siap di: $BUSYBOX_PATH"
+            log_info "Version: $busybox_info" \
+                     "Versi: $busybox_info"
+        fi
+
+        return 0
+    else
+        log_error "Failed to setup busybox binary" \
+                  "Gagal menyiapkan binary busybox"
+
+        echo ""
+        echo "Troubleshooting steps:"
+        echo "1. Install busybox-static: sudo apt install busybox-static"
+        echo "2. Check if busybox exists: which busybox"
+        echo "3. Check permissions: ls -la /usr/bin/busybox"
+        echo "4. Manual copy: sudo cp /usr/bin/busybox $BUSYBOX_PATH"
+
+        return 1
+    fi
 }
 
 # =============================================================================
@@ -2180,38 +2280,118 @@ test_busybox_basic_functionality() {
 }
 
 # Download busybox static binary from official source
+# Check and install busybox-static if needed
+ensure_busybox_static_installed() {
+    log_info "Checking busybox-static installation" \
+             "Seperti RT memeriksa ketersediaan peralatan standar"
+
+    # Check if busybox is available
+    if command -v busybox &> /dev/null; then
+        log_info "Busybox found in system" \
+                 "Peralatan busybox sudah tersedia di sistem"
+        return 0
+    fi
+
+    # Check if we're on a system that supports apt
+    if command -v apt &> /dev/null; then
+        log_warn "Busybox not found, attempting to install busybox-static" \
+                 "Peralatan tidak ditemukan, mencoba menginstall busybox-static"
+
+        # Update package list and install busybox-static
+        if apt update && apt install -y busybox-static; then
+            log_success "Busybox-static installed successfully" \
+                        "Peralatan busybox berhasil diinstall"
+            return 0
+        else
+            log_error "Failed to install busybox-static" \
+                      "Gagal menginstall peralatan busybox"
+            return 1
+        fi
+    else
+        log_warn "Package manager 'apt' not available, cannot auto-install busybox" \
+                 "Sistem paket tidak tersedia, tidak bisa auto-install busybox"
+        return 1
+    fi
+}
+
 # Setup busybox from system or create minimal alternative
 setup_busybox_binary() {
     log_step 1 "Setting up busybox binary" \
               "Seperti RT menyiapkan peralatan dasar untuk setiap rumah di kompleks"
-    
+
     local busybox_dir=$(dirname "$BUSYBOX_PATH")
     create_directory "$busybox_dir"
-    
+
     # Check if busybox already exists and is functional
     if [[ -f "$BUSYBOX_PATH" ]] && [[ -x "$BUSYBOX_PATH" ]] && test_busybox_basic_functionality; then
         log_info "Busybox already exists and is functional" \
                  "Seperti peralatan rumah sudah tersedia dan dalam kondisi baik"
         return 0
     fi
+
+    # Ensure busybox-static is installed
+    if ! ensure_busybox_static_installed; then
+        log_warn "Could not ensure busybox installation, will try alternatives" \
+                 "Tidak bisa memastikan instalasi busybox, akan coba alternatif"
+    fi
     
-    # Try to find system busybox first
+    # Try to find system busybox first - prioritize /usr/bin/busybox
     local system_busybox=""
-    if command -v busybox &> /dev/null; then
-        system_busybox=$(command -v busybox)
-        log_info "Found system busybox at: $system_busybox" \
-                 "Seperti menemukan peralatan standar yang sudah tersedia di kompleks"
-        
-        # Copy system busybox to our location
-        if cp "$system_busybox" "$BUSYBOX_PATH"; then
+    local busybox_locations=("/usr/bin/busybox" "/bin/busybox")
+
+    # Add command -v result if different from above
+    local cmd_busybox=$(command -v busybox 2>/dev/null || echo "")
+    if [[ -n "$cmd_busybox" ]]; then
+        busybox_locations+=("$cmd_busybox")
+    fi
+
+    log_info "Searching for busybox in system locations..." \
+             "Mencari peralatan busybox di lokasi sistem..."
+
+    for location in "${busybox_locations[@]}"; do
+        log_debug "Checking busybox at: $location" \
+                  "Memeriksa busybox di: $location"
+
+        if [[ -n "$location" ]] && [[ -f "$location" ]] && [[ -x "$location" ]]; then
+            system_busybox="$location"
+            log_info "Found system busybox at: $system_busybox" \
+                     "Menemukan peralatan busybox di: $system_busybox"
+            break
+        fi
+    done
+
+    if [[ -n "$system_busybox" ]]; then
+        log_info "Copying busybox from $system_busybox to $BUSYBOX_PATH" \
+                 "Menyalin busybox dari $system_busybox ke $BUSYBOX_PATH"
+
+        # Ensure target directory exists
+        local busybox_dir=$(dirname "$BUSYBOX_PATH")
+        create_directory "$busybox_dir"
+
+        # Copy system busybox to our location with detailed error handling
+        if cp "$system_busybox" "$BUSYBOX_PATH" 2>/dev/null; then
             chmod +x "$BUSYBOX_PATH"
-            
+            log_info "Busybox copied successfully, testing functionality..." \
+                     "Busybox berhasil disalin, menguji fungsi..."
+
             if test_busybox_basic_functionality; then
                 log_success "System busybox copied and verified successfully" \
                             "Peralatan sistem berhasil disalin dan siap digunakan"
                 return 0
+            else
+                log_warn "Copied busybox failed functionality test" \
+                         "Peralatan yang disalin tidak lolos tes fungsi"
+                rm -f "$BUSYBOX_PATH"  # Remove failed copy
             fi
+        else
+            log_error "Failed to copy busybox from $system_busybox to $BUSYBOX_PATH" \
+                      "Gagal menyalin peralatan dari $system_busybox"
+            log_info "Check permissions and disk space" \
+                     "Periksa izin akses dan ruang disk"
         fi
+    else
+        log_warn "No system busybox found in standard locations" \
+                 "Tidak ditemukan busybox di lokasi standar sistem"
     fi
     
     # If system busybox not available, create minimal shell alternative
@@ -2737,6 +2917,8 @@ show_main_help() {
     echo -e "${COLOR_GREEN}├── show-topology    : Melihat peta kompleks perumahan${COLOR_RESET}"
     echo -e "${COLOR_GREEN}├── recover-state    : Memulihkan kondisi rumah yang bermasalah${COLOR_RESET}"
     echo -e "${COLOR_GREEN}├── validate-system  : Memeriksa kesehatan sistem kompleks${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── install-busybox  : Menginstall peralatan busybox-static${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── setup-busybox    : Menyiapkan busybox dari sistem ke RT${COLOR_RESET}"
     echo -e "${COLOR_GREEN}├── emergency-cleanup: Pembersihan darurat semua resource${COLOR_RESET}"
     echo -e "${COLOR_GREEN}└── cleanup-all      : Bersih-bersih kompleks menyeluruh${COLOR_RESET}"
     
@@ -4810,7 +4992,9 @@ setup_container_ip() {
     log_step 3 "Setting up IP address for container: $container_name" \
               "Seperti memberikan nomor telepon khusus: $container_ip"
     
-    local veth_container="veth-${container_name}-c"
+    # Get veth names using helper function
+    local veth_names=($(generate_veth_names "$container_name"))
+    local veth_container="${veth_names[1]}"
     local subnet_mask="24"
     
     # Assign IP address to container interface
@@ -7977,6 +8161,12 @@ main() {
             local scope=${2:-"all"}
             local container_name=${3:-""}
             cmd_security_audit "$scope" "$container_name"
+            ;;
+        "install-busybox")
+            cmd_install_busybox
+            ;;
+        "setup-busybox")
+            cmd_setup_busybox
             ;;
         "help"|"--help"|"-h")
             local topic=${2:-""}
