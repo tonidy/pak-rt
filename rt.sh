@@ -2658,6 +2658,90 @@ verify_busybox_functionality() {
 1
     fi
 }
+
+# Setup isolated container rootfs
+setup_container_rootfs() {
+    local container_name=$1
+    local container_rootfs="$CONTAINERS_DIR/$container_name/rootfs"
+
+    log_info "Creating isolated container filesystem" \
+             "Seperti RT yang menyiapkan rumah dengan sistem file terpisah"
+
+    # Create basic directory structure
+    create_directory "$container_rootfs/bin"
+    create_directory "$container_rootfs/sbin"
+    create_directory "$container_rootfs/usr/bin"
+    create_directory "$container_rootfs/usr/sbin"
+    create_directory "$container_rootfs/lib"
+    create_directory "$container_rootfs/usr/lib"
+    create_directory "$container_rootfs/proc"
+    create_directory "$container_rootfs/sys"
+    create_directory "$container_rootfs/dev"
+    create_directory "$container_rootfs/dev/pts"
+    create_directory "$container_rootfs/tmp"
+    create_directory "$container_rootfs/var"
+    create_directory "$container_rootfs/var/tmp"
+    create_directory "$container_rootfs/var/log"
+    create_directory "$container_rootfs/etc"
+    create_directory "$container_rootfs/root"
+    create_directory "$container_rootfs/home"
+    create_directory "$container_rootfs/mnt"
+    create_directory "$container_rootfs/opt"
+    create_directory "$container_rootfs/run"
+
+    # Copy busybox to container
+    local container_busybox="$container_rootfs/bin/busybox"
+    cp "$BUSYBOX_PATH" "$container_busybox"
+    chmod +x "$container_busybox"
+
+    # Create essential device files
+    if [[ -c /dev/null ]]; then
+        cp -a /dev/null "$container_rootfs/dev/" 2>/dev/null || true
+    fi
+    if [[ -c /dev/zero ]]; then
+        cp -a /dev/zero "$container_rootfs/dev/" 2>/dev/null || true
+    fi
+    if [[ -c /dev/random ]]; then
+        cp -a /dev/random "$container_rootfs/dev/" 2>/dev/null || true
+    fi
+    if [[ -c /dev/urandom ]]; then
+        cp -a /dev/urandom "$container_rootfs/dev/" 2>/dev/null || true
+    fi
+
+    # Create basic /etc files for container
+    cat > "$container_rootfs/etc/passwd" << 'EOF'
+root:x:0:0:Container Root:/root:/bin/sh
+nobody:x:65534:65534:Nobody:/:/bin/false
+EOF
+
+    cat > "$container_rootfs/etc/group" << 'EOF'
+root:x:0:
+nobody:x:65534:
+EOF
+
+    cat > "$container_rootfs/etc/hosts" << 'EOF'
+127.0.0.1   localhost
+::1         localhost ip6-localhost ip6-loopback
+EOF
+
+    cat > "$container_rootfs/etc/resolv.conf" << 'EOF'
+nameserver 8.8.8.8
+nameserver 8.8.4.4
+EOF
+
+    # Create minimal shell profile
+    cat > "$container_rootfs/etc/profile" << 'EOF'
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+export HOME=/root
+export USER=root
+export SHELL=/bin/sh
+export PS1='container:\w\$ '
+EOF
+
+    log_success "Isolated container filesystem created" \
+                "Sistem file rumah yang terpisah berhasil disiapkan"
+}
+
 # Setup busybox with symlinks for common commands
 setup_busybox() {
     local container_name=$1
@@ -2666,22 +2750,8 @@ setup_busybox() {
     log_step 3 "Setting up busybox for container: $container_name" \
               "Seperti RT yang menyiapkan peralatan lengkap untuk rumah baru"
     
-    # Create container rootfs structure
-    create_directory "$container_rootfs/bin"
-    create_directory "$container_rootfs/sbin"
-    create_directory "$container_rootfs/usr/bin"
-    create_directory "$container_rootfs/usr/sbin"
-    create_directory "$container_rootfs/proc"
-    create_directory "$container_rootfs/sys"
-    create_directory "$container_rootfs/dev"
-    create_directory "$container_rootfs/tmp"
-    create_directory "$container_rootfs/var"
-    create_directory "$container_rootfs/etc"
-    
-    # Copy busybox to container
-    local container_busybox="$container_rootfs/bin/busybox"
-    cp "$BUSYBOX_PATH" "$container_busybox"
-    chmod +x "$container_busybox"
+    # Create proper isolated container rootfs structure
+    setup_container_rootfs "$container_name"
     
     log_info "Creating busybox symlinks for common commands" \
              "Seperti RT yang menyiapkan shortcut peralatan untuk kemudahan warga"
@@ -7361,7 +7431,7 @@ cmd_list_containers() {
     fi
     
     echo ""
-    echo "🏘️  RT Container Runtime - Daftar Container/Rumah Kompleks"
+    echo "🏘️  RT Container Runtime - Daftar Container"
     echo "=================================================="
     printf "%-20s %-10s %-15s %-15s %-20s\n" "NAMA CONTAINER" "STATUS" "RAM (MB)" "CPU (%)" "IP ADDRESS"
     echo "--------------------------------------------------"
