@@ -4097,10 +4097,25 @@ set_container_ip() {
 
 get_container_ip() {
     local container_name=$1
+
+    # First check in-memory array
     if [[ -n "${CONTAINER_IPS[$container_name]:-}" ]]; then
         echo "${CONTAINER_IPS[$container_name]}"
         return 0
     fi
+
+    # If not in memory, try to read from config file
+    local config_file="$CONTAINERS_DIR/$container_name/config.json"
+    if [[ -f "$config_file" ]]; then
+        local ip_address=$(grep -o '"ip_address":[[:space:]]*"[^"]*"' "$config_file" 2>/dev/null | cut -d'"' -f4)
+        if [[ -n "$ip_address" && "$ip_address" != "N/A" ]]; then
+            # Cache it in memory for future use
+            CONTAINER_IPS["$container_name"]="$ip_address"
+            echo "$ip_address"
+            return 0
+        fi
+    fi
+
     return 1
 }
 
@@ -5098,7 +5113,22 @@ EOF
 # Generate consistent short veth names (max 15 chars for Linux interface names)
 generate_veth_names() {
     local container_name=$1
-    local name_hash=$(echo "$container_name" | md5sum | cut -c1-6)
+    local config_file="$CONTAINERS_DIR/$container_name/config.json"
+
+    # Check if veth names already exist in config
+    if [[ -f "$config_file" ]]; then
+        local existing_host=$(grep -o '"veth_host":"[^"]*"' "$config_file" 2>/dev/null | cut -d'"' -f4)
+        local existing_container=$(grep -o '"veth_container":"[^"]*"' "$config_file" 2>/dev/null | cut -d'"' -f4)
+
+        if [[ -n "$existing_host" && -n "$existing_container" ]]; then
+            echo "$existing_host" "$existing_container"
+            return 0
+        fi
+    fi
+
+    # Generate new unique veth names
+    local unique_string="${container_name}-$(date +%s%N | cut -c1-10)"
+    local name_hash=$(echo "$unique_string" | md5sum | cut -c1-6)
     echo "veth-h${name_hash}" "veth-c${name_hash}"
 }
 
@@ -7929,7 +7959,7 @@ start_container_process() {
     echo "   Name: $container_name"
     echo "   PID: $container_pid"
     echo "   Command: $command_to_run"
-    echo "   Status: running"
+    echo "   Status: $(get_container_status "$container_name")"
     if [[ "$MACOS_MODE" != "true" ]]; then
         echo "   IP: $(get_container_ip "$container_name" 2>/dev/null || echo "N/A")"
     else

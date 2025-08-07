@@ -90,7 +90,7 @@ show_menu() {
 demo_basic_lifecycle() {
     demo_header "Basic Container Lifecycle" \
                 "Demonstrasi dasar create, list, run, dan delete container" \
-                "Seperti RT yang mengelola siklus hidup rumah dari bangun sampai roboh"
+                "Seperti RT yang mengelola siklus hidup rumah dari pembangunan sampai perobohan"
     
     echo -e "\n${GREEN}Step 1: Creating a new container${NC}"
     echo -e "${PURPLE}🏗️ RT sedang membangun rumah baru...${NC}"
