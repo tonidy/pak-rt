@@ -7452,9 +7452,9 @@ cmd_list_containers() {
         # Get container metadata
         local config_file="$CONTAINERS_DIR/$container_name/config.json"
         if [[ -f "$config_file" ]]; then
-            memory_mb=$(grep -o '"memory_mb":[0-9]*' "$config_file" 2>/dev/null | cut -d: -f2 || echo "N/A")
-            cpu_percent=$(grep -o '"cpu_percentage":[0-9]*' "$config_file" 2>/dev/null | cut -d: -f2 || echo "N/A")
-            ip_address=$(grep -o '"ip_address":"[^"]*"' "$config_file" 2>/dev/null | cut -d'"' -f4 || echo "N/A")
+            memory_mb=$(grep -o '"memory_mb":[[:space:]]*[0-9]*' "$config_file" 2>/dev/null | grep -o '[0-9]*' || echo "N/A")
+            cpu_percent=$(grep -o '"cpu_percentage":[[:space:]]*[0-9]*' "$config_file" 2>/dev/null | grep -o '[0-9]*' || echo "N/A")
+            ip_address=$(grep -o '"ip_address":[[:space:]]*"[^"]*"' "$config_file" 2>/dev/null | cut -d'"' -f4 || echo "N/A")
         fi
         
         # Display status without color codes
