@@ -7642,7 +7642,7 @@ start_container_process() {
     fi
     
     cat > "$temp_startup" << EOF
-#!/bin/bash
+#!/bin/sh
 set -e
 
 # Mount essential filesystems
