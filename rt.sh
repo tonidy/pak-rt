@@ -232,7 +232,10 @@ log_error() {
 }
 
 log_warn() {
-    log $LOG_WARN "$1" "${2:-Seperti ada hal yang perlu diperhatikan pak RT untuk kelancaran kompleks}"
+    # Only show warnings in verbose mode
+    if [[ "$VERBOSE_MODE" == "true" ]]; then
+        log $LOG_WARN "$1" "${2:-Seperti ada hal yang perlu diperhatikan pak RT untuk kelancaran kompleks}"
+    fi
 }
 
 log_info() {
@@ -293,7 +296,19 @@ log_debug_detail() {
 log_success() {
     local message=$1
     local analogy=${2:-"Seperti RT berhasil menyelesaikan tugas untuk warga kompleks"}
-    
+
+    # Only show success messages in verbose mode
+    if [[ "$VERBOSE_MODE" == "true" ]]; then
+        echo -e "\n${COLOR_GREEN}✅ SUCCESS: $message${COLOR_RESET}"
+        echo -e "${COLOR_GREEN}   🎉 Analogi: $analogy${COLOR_RESET}\n"
+    fi
+}
+
+# Success message that always shows (for important operations)
+log_success_always() {
+    local message=$1
+    local analogy=${2:-"Seperti RT berhasil menyelesaikan tugas untuk warga kompleks"}
+
     echo -e "\n${COLOR_GREEN}✅ SUCCESS: $message${COLOR_RESET}"
     echo -e "${COLOR_GREEN}   🎉 Analogi: $analogy${COLOR_RESET}\n"
 }
@@ -7310,8 +7325,8 @@ cmd_create_container() {
                  "Verifikasi isolasi gagal, tapi rumah sudah berhasil dibuat"
     fi
     
-    log_success "Container '$container_name' created successfully!" \
-                "Rumah '$container_name' berhasil didaftarkan dan siap ditempati warga"
+    log_success_always "Container '$container_name' created successfully!" \
+                       "Rumah '$container_name' berhasil didaftarkan dan siap ditempati warga"
     
     log_info "Next steps:" \
              "Langkah selanjutnya untuk menempati rumah:"
@@ -7429,8 +7444,8 @@ cmd_run_container() {
         return 1
     fi
     
-    log_success "Container '$container_name' started successfully!" \
-                "Rumah '$container_name' berhasil dibuka dan siap ditempati"
+    log_success_always "Container '$container_name' started successfully!" \
+                       "Rumah '$container_name' berhasil dibuka dan siap ditempati"
     
     return 0
 }
@@ -7834,8 +7849,8 @@ start_container_process() {
     # Update container status
     update_container_status "$container_name" "running" "$container_pid"
 
-    log_success "Container '$container_name' started with PID: $container_pid" \
-                "Rumah '$container_name' berhasil dibuka dengan penghuni PID: $container_pid"
+    log_success_always "Container '$container_name' started with PID: $container_pid" \
+                       "Rumah '$container_name' berhasil dibuka dengan penghuni PID: $container_pid"
 
     # Show container information
     echo ""
