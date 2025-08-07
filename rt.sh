@@ -7663,7 +7663,15 @@ export SHELL="/bin/sh"
 cd /
 
 # Execute the requested command
-exec $command_to_run
+# If no specific command, run a simple sleep loop to keep container alive
+if [ "$command_to_run" = "/bin/sh" ]; then
+    # For background containers, run a sleep loop
+    while true; do
+        sleep 3600
+    done
+else
+    exec $command_to_run
+fi
 EOF
     
     # Atomically move temp file to final location
