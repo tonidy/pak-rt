@@ -5195,12 +5195,6 @@ cleanup_failed_container() {
     return 0
 }
 
-get_next_container_ip() {
-    local ip="10.0.0.$NEXT_IP_OCTET"
-    ((NEXT_IP_OCTET++))
-    echo "$ip"
-}
-
 # Create network namespace for container
 create_network_namespace() {
     local container_name=$1
