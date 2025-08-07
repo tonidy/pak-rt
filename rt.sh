@@ -4119,6 +4119,26 @@ get_container_ip() {
     return 1
 }
 
+get_container_status() {
+    local container_name=$1
+    local config_file="$CONTAINERS_DIR/$container_name/config.json"
+
+    if [[ -f "$config_file" ]]; then
+        local status=$(grep -o '"status":[[:space:]]*"[^"]*"' "$config_file" 2>/dev/null | cut -d'"' -f4)
+        if [[ -n "$status" ]]; then
+            echo "$status"
+            return 0
+        fi
+    fi
+
+    # Fallback: check if container is actually running
+    if container_is_running "$container_name"; then
+        echo "running"
+    else
+        echo "stopped"
+    fi
+}
+
 unset_container_ip() {
     local container_name=$1
     unset CONTAINER_IPS["$container_name"]
