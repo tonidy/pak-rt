@@ -3,7 +3,7 @@
 # RT (Rukun Tetangga) Container Runtime
 # Educational container runtime implementation using Linux namespaces and cgroups
 # Author: Container Learning Project
-# Version: 1.0
+# Version: 0.1.0
 
 set -euo pipefail
 
@@ -13,7 +13,7 @@ set -euo pipefail
 
 # Script metadata
 readonly SCRIPT_NAME="RT Container Runtime"
-readonly SCRIPT_VERSION="1.0"
+readonly SCRIPT_VERSION="0.1.0"
 readonly SCRIPT_AUTHOR="Container Learning Project"
 
 # Detect operating system
@@ -9385,6 +9385,14 @@ EOF
 main() {
     local command=${1:-""}
 
+    # Handle version flags immediately, before any other processing
+    case "$command" in
+        -v|-V|--version)
+            echo "rt.sh version $SCRIPT_VERSION"
+            exit 0
+            ;;
+    esac
+
     # Initialize paths and configuration
     init_paths
 
@@ -9394,8 +9402,8 @@ main() {
         exit 0
     fi
 
-    # Check OS compatibility first (but allow help commands to pass through)
-    if [[ "$MACOS_MODE" == "true" && "$command" != "help" && "$command" != "--help" && "$command" != "-h" ]]; then
+    # Check OS compatibility first (but allow help and version commands to pass through)
+    if [[ "$MACOS_MODE" == "true" && "$command" != "help" && "$command" != "--help" && "$command" != "-h" && "$command" != "-v" && "$command" != "-V" && "$command" != "--version" ]]; then
         check_os_compatibility
         echo ""
         read -p "Continue anyway for educational purposes? (y/N): " -n 1 -r
