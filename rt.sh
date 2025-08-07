@@ -4258,11 +4258,20 @@ unset_container_ip() {
 
 is_ip_in_use() {
     local ip=$1
-    for container_name in "${!CONTAINER_IPS[@]}"; do
-        if [[ "${CONTAINER_IPS[$container_name]}" == "$ip" ]]; then
-            return 0
-        fi
-    done
+
+    # Check if IP is already in use using string data
+    if [[ -n "$CONTAINER_IPS_DATA" ]]; then
+        IFS='|' read -ra entries <<< "$CONTAINER_IPS_DATA"
+        for entry in "${entries[@]}"; do
+            if [[ -n "$entry" ]]; then
+                local entry_ip="${entry#*:}"
+                if [[ "$entry_ip" == "$ip" ]]; then
+                    return 0
+                fi
+            fi
+        done
+    fi
+
     return 1
 }
 
@@ -5234,7 +5243,7 @@ created_at=$(date '+%Y-%m-%d %H:%M:%S')
 EOF
     
     # Track active network namespace
-    ACTIVE_NETWORKS["$container_name"]="container-$container_name"
+    set_container_network "$container_name" "container-$container_name"
     
     log_success "Network namespace configured with loopback interface" \
                 "Sistem telepon rumah siap dengan jalur internal aktif"
