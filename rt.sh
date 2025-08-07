@@ -5685,16 +5685,26 @@ setup_container_ip() {
     local veth_names=($(generate_veth_names "$container_name"))
     local veth_container="${veth_names[1]}"
     local subnet_mask="24"
-    
-    # Rename container interface to eth0 for consistency
-    if ! ip netns exec "container-$container_name" ip link set "$veth_container" name eth0; then
-        log_warn "Failed to rename interface to eth0, keeping original name" \
-                 "Gagal mengubah nama interface, tetap menggunakan nama asli"
-        local interface_name="$veth_container"
-    else
-        local interface_name="eth0"
-        log_info "Interface renamed to eth0" \
-                 "Interface berhasil dinamai eth0 untuk konsistensi"
+
+    # Find the actual interface name in the container namespace
+    local interface_name=$(ip netns exec "container-$container_name" ip link show | grep -E "^[0-9]+:" | grep -v "lo:" | head -1 | cut -d: -f2 | tr -d ' ')
+
+    if [[ -z "$interface_name" ]]; then
+        log_error "No network interface found in container namespace" \
+                  "Tidak ada interface jaringan di dalam rumah"
+        return 1
+    fi
+
+    # Rename to eth0 if not already named eth0
+    if [[ "$interface_name" != "eth0" ]]; then
+        if ip netns exec "container-$container_name" ip link set "$interface_name" name eth0 2>/dev/null; then
+            interface_name="eth0"
+            log_info "Interface renamed to eth0" \
+                     "Interface berhasil dinamai eth0 untuk konsistensi"
+        else
+            log_debug "Using original interface name: $interface_name" \
+                      "Menggunakan nama interface asli"
+        fi
     fi
 
     # Bring up the interface
