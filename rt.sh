@@ -1854,9 +1854,10 @@ cleanup_partial_network_setup() {
         ip netns delete "container-$container_name" 2>/dev/null || true
     fi
     
-    # Remove veth pairs
-    local veth_host="veth-host-$container_name"
-    local veth_container="veth-cont-$container_name"
+    # Remove veth pairs using consistent naming
+    local veth_names=($(generate_veth_names "$container_name"))
+    local veth_host="${veth_names[0]}"
+    local veth_container="${veth_names[1]}"
     
     if ip link show "$veth_host" &>/dev/null; then
         log_debug "Removing veth pair: $veth_host"
@@ -2097,9 +2098,10 @@ cleanup_container_network() {
         ip netns delete "$netns_name" 2>/dev/null || true
     fi
     
-    # Remove veth pairs
-    local veth_host="veth-host-$container_name"
-    local veth_container="veth-cont-$container_name"
+    # Remove veth pairs using consistent naming
+    local veth_names=($(generate_veth_names "$container_name"))
+    local veth_host="${veth_names[0]}"
+    local veth_container="${veth_names[1]}"
     
     if ip link show "$veth_host" &>/dev/null; then
         log_debug "Removing veth pair: $veth_host"
@@ -3806,8 +3808,8 @@ save_container_metadata() {
   },
   "network": {
     "ip_address": "$ip_address",
-    "veth_host": "veth-host-$container_name",
-    "veth_container": "veth-cont-$container_name"
+    "veth_host": "$(generate_veth_names "$container_name" | cut -d' ' -f1)",
+    "veth_container": "$(generate_veth_names "$container_name" | cut -d' ' -f2)"
   },
   "namespaces": {
     "pid": "",
@@ -4733,6 +4735,13 @@ EOF
     return 0
 }
 
+# Generate consistent short veth names (max 15 chars for Linux interface names)
+generate_veth_names() {
+    local container_name=$1
+    local name_hash=$(echo "$container_name" | md5sum | cut -c1-6)
+    echo "veth-h${name_hash}" "veth-c${name_hash}"
+}
+
 # Create veth pair for container-to-container communication
 create_veth_pair() {
     local container_name=$1
@@ -4741,8 +4750,10 @@ create_veth_pair() {
     log_step 2 "Creating veth pair for container: $container_name" \
               "Seperti memasang kabel telepon khusus untuk komunikasi antar rumah"
     
-    local veth_host="veth-${container_name}"
-    local veth_container="veth-${container_name}-c"
+    # Generate short veth names using helper function
+    local veth_names=($(generate_veth_names "$container_name"))
+    local veth_host="${veth_names[0]}"
+    local veth_container="${veth_names[1]}"
     
     # Create veth pair
     if ! ip link add "$veth_host" type veth peer name "$veth_container"; then
@@ -7248,14 +7259,19 @@ cmd_cleanup_all() {
     echo "  - All cgroups"
     echo "  - All container data"
     echo ""
-    read -p "Are you ABSOLUTELY sure you want to cleanup everything? (type 'YES' to confirm): " confirmation
+    read -p "Are you ABSOLUTELY sure you want to cleanup everything? (type 'YES/yes/y/Y' to confirm): " confirmation
     
-    if [[ "$confirmation" != "YES" ]]; then
-        log_info "Emergency cleanup cancelled by RT" \
+    case "$confirmation" in
+        yes|YES|y|Y)
+            log_info "RT confirmed deletion of emergency cleanup" \
+                     "RT mengkonfirmasi pembersihan darurat"
+            ;;
+        *)
+           log_info "Emergency cleanup cancelled by RT" \
                  "Pembersihan darurat dibatalkan oleh RT"
-        return 0
-    fi
-    
+            ;;
+    esac
+
     log_info "RT starting emergency cleanup of entire complex..." \
              "RT memulai pembersihan darurat seluruh kompleks perumahan..."
     
