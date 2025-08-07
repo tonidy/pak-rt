@@ -8035,7 +8035,7 @@ exec_container_command() {
         # Execute command in container namespaces with proper chroot
         local container_rootfs="$CONTAINERS_DIR/$container_name/rootfs"
 
-        # Start the command in background and add to cgroup
+        # Start the command in background to get its PID
         nsenter -t "$container_pid" -p -m -u -i -n chroot "$container_rootfs" /bin/busybox sh -c "
             export PATH=/bin:/sbin:/usr/bin:/usr/sbin
             export HOME=/root
@@ -8045,15 +8045,25 @@ exec_container_command() {
             exec $exec_command
         " &
 
-        local exec_pid=$!
+        local nsenter_pid=$!
 
-        # Add the exec process to container cgroup
+        # Give the process a moment to start
+        sleep 0.1
+
+        # Find all child processes of the container and add them to cgroup
         if [[ "$MACOS_MODE" != "true" ]]; then
-            add_process_to_container_cgroups "$container_name" "$exec_pid"
+            # Add the nsenter process and its children to cgroup
+            add_process_to_container_cgroups "$container_name" "$nsenter_pid" 2>/dev/null || true
+
+            # Also add any child processes that might have been created
+            local child_pids=$(pgrep -P "$container_pid" 2>/dev/null || true)
+            for child_pid in $child_pids; do
+                add_process_to_container_cgroups "$container_name" "$child_pid" 2>/dev/null || true
+            done
         fi
 
         # Wait for the exec process to complete
-        wait $exec_pid
+        wait $nsenter_pid
     fi
 }
 
