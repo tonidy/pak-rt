@@ -7803,15 +7803,18 @@ fi
 EOF
         chmod +x "$container_script"
 
-        # Start container with simpler command
+        # Start container with simpler command using nohup for better background execution
+        local log_file="$CONTAINERS_DIR/$container_name/container.log"
         if [[ "$ROOTLESS_MODE" == "true" ]]; then
             # Rootless mode - use user namespaces
-            unshare --pid --mount --uts --ipc --user --map-root-user \
-                chroot "$container_rootfs" /run_container.sh &
+            nohup unshare --pid --mount --uts --ipc --user --map-root-user \
+                chroot "$container_rootfs" /run_container.sh \
+                > "$log_file" 2>&1 &
         else
             # Root mode - use all namespaces except user
-            unshare --pid --mount --uts --ipc --net \
-                chroot "$container_rootfs" /run_container.sh &
+            nohup unshare --pid --mount --uts --ipc --net \
+                chroot "$container_rootfs" /run_container.sh \
+                > "$log_file" 2>&1 &
         fi
     fi
 
