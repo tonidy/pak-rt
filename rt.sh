@@ -1798,7 +1798,7 @@ validate_memory_limit() {
         return 1
     fi
     
-    if [[ $memory_mb -lt 64 ]]; then
+    if [[ $memory_mb -lt 8 ]]; then
         log_error "Memory limit too low (minimum 64MB)" "Seperti alokasi listrik rumah minimal harus cukup untuk kebutuhan dasar"
         return 1
     fi
@@ -3166,7 +3166,7 @@ show_create_help() {
     
     echo -e "${COLOR_RED}⚠️  BATASAN DAN ATURAN:${COLOR_RESET}"
     echo -e "${COLOR_RED}├── Nama rumah: 1-50 karakter, huruf/angka/dash/underscore${COLOR_RESET}"
-    echo -e "${COLOR_RED}├── RAM minimum: 64MB, maksimum: 8192MB (8GB)${COLOR_RESET}"
+    echo -e "${COLOR_RED}├── RAM minimum: 8MB, maksimum: 8192MB (8GB)${COLOR_RESET}"
     echo -e "${COLOR_RED}├── CPU minimum: 1%, maksimum: 100%${COLOR_RESET}"
     echo -e "${COLOR_RED}└── Nama rumah harus unik di kompleks${COLOR_RESET}\n"
 }
