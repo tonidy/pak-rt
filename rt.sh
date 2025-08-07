@@ -7433,12 +7433,18 @@ cmd_run_container() {
 # Execute command in container handler
 cmd_exec_container() {
     local container_name="$1"
-    local exec_command="${2:-/bin/sh}"
+    shift # Remove container name from arguments
+    local exec_command="${*:-/bin/sh}" # Join all remaining arguments as command
 
     if [[ -z "$container_name" ]]; then
         log_error "Container name is required" \
                   "Seperti RT perlu tahu rumah mana yang akan dimasuki"
         echo "Usage: $0 exec <container_name> [command]"
+        echo "Examples:"
+        echo "  $0 exec mycontainer"
+        echo "  $0 exec mycontainer ls"
+        echo "  $0 exec mycontainer ls -la /tmp"
+        echo "  $0 exec mycontainer /bin/busybox ps"
         return 1
     fi
 
@@ -7459,8 +7465,8 @@ cmd_exec_container() {
         return 1
     fi
 
-    log_info "Pak RT sedang memasuki rumah '$container_name'..." \
-             "Seperti RT yang berkunjung ke rumah warga"
+    log_info "Pak RT sedang memasuki rumah '$container_name' untuk menjalankan: $exec_command" \
+             "Seperti RT yang berkunjung ke rumah warga untuk melakukan aktivitas"
 
     # Execute command in container
     exec_container_command "$container_name" "$exec_command"
@@ -7840,9 +7846,9 @@ start_container_process() {
     echo ""
     echo "💡 To connect to the container:"
     if [[ "$MACOS_MODE" == "true" ]]; then
-        echo "   Use: ./rt.sh exec $container_name [command]"
+        echo "   Use: sudo ./rt.sh exec $container_name [command]"
     else
-        echo "   nsenter -t $container_pid -p -m -u -i -n /bin/busybox sh"
+        echo "   sudo nsenter -t $container_pid -p -m -u -i -n /bin/busybox sh"
     fi
     echo ""
 
@@ -8244,7 +8250,8 @@ main() {
             cmd_run_container "$2" "${3:-}"
             ;;
         "exec-container"|"exec")
-            cmd_exec_container "$2" "${3:-}"
+            # Pass container name and all remaining arguments
+            cmd_exec_container "$2" "${@:3}"
             ;;
         "delete-container"|"delete")
             cmd_delete_container "$2"
