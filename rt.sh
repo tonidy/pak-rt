@@ -3303,33 +3303,28 @@ get_busybox_info() {
 # =============================================================================
 
 # Global namespace tracking for cleanup
-# Using regular arrays for compatibility
-ACTIVE_NAMESPACES=()
+# Using associative arrays for proper container tracking
+declare -A ACTIVE_NAMESPACES
 
-# Helper functions for array management (compatibility with older bash)
+# Helper functions for associative array management
 set_container_namespace() {
     local container_name=$1
     local namespaces=$2
-    # Remove existing entry if present
-    ACTIVE_NAMESPACES=($(printf '%s\n' "${ACTIVE_NAMESPACES[@]}" | grep -v "^$container_name:" || true))
-    # Add new entry
-    ACTIVE_NAMESPACES+=("$container_name:$namespaces")
+    ACTIVE_NAMESPACES["$container_name"]="$namespaces"
 }
 
 get_container_namespace() {
     local container_name=$1
-    for entry in "${ACTIVE_NAMESPACES[@]}"; do
-        if [[ "$entry" =~ ^$container_name: ]]; then
-            echo "${entry#*:}"
-            return 0
-        fi
-    done
+    if [[ -n "${ACTIVE_NAMESPACES[$container_name]:-}" ]]; then
+        echo "${ACTIVE_NAMESPACES[$container_name]}"
+        return 0
+    fi
     return 1
 }
 
 unset_container_namespace() {
     local container_name=$1
-    ACTIVE_NAMESPACES=($(printf '%s\n' "${ACTIVE_NAMESPACES[@]}" | grep -v "^$container_name:" || true))
+    unset ACTIVE_NAMESPACES["$container_name"]
 }
 
 # Create PID namespace with "Ayah nomor 1 di rumah" analogy
@@ -3433,8 +3428,10 @@ hostname="$hostname_param"
 domainname="container.local"
 EOF
     
-    # Create hostname file for the container
-    echo "$hostname_param" > "$CONTAINERS_DIR/$container_name/rootfs/etc/hostname"
+    # Create hostname file for the container (ensure etc directory exists)
+    local container_rootfs="$CONTAINERS_DIR/$container_name/rootfs"
+    create_directory "$container_rootfs/etc"
+    echo "$hostname_param" > "$container_rootfs/etc/hostname"
     
     log_success "UTS namespace configuration prepared with hostname: $hostname_param" \
                 "Papan nama rumah '$hostname_param' siap dipasang"
@@ -3512,8 +3509,9 @@ EOF
     echo "0 $host_uid 1" > "$ns_dir/uid_map"
     echo "0 $host_gid 1" > "$ns_dir/gid_map"
     
-    # Create container passwd and group files
+    # Create container passwd and group files (ensure etc directory exists)
     local container_rootfs="$CONTAINERS_DIR/$container_name/rootfs"
+    create_directory "$container_rootfs/etc"
     cat > "$container_rootfs/etc/passwd" << EOF
 root:x:0:0:Container Root:/root:/bin/sh
 nobody:x:65534:65534:Nobody:/nonexistent:/bin/false
@@ -3589,66 +3587,56 @@ setup_container_namespaces() {
 # =============================================================================
 
 # Global network tracking for cleanup
-# Using regular arrays for compatibility
-ACTIVE_NETWORKS=()
-CONTAINER_IPS=()
+# Using associative arrays for proper container tracking
+declare -A ACTIVE_NETWORKS
+declare -A CONTAINER_IPS
 NEXT_IP_OCTET=2
 
-# Helper functions for network array management
+# Helper functions for network associative array management
 set_container_network() {
     local container_name=$1
     local network_info=$2
-    # Remove existing entry if present
-    ACTIVE_NETWORKS=($(printf '%s\n' "${ACTIVE_NETWORKS[@]}" | grep -v "^$container_name:" || true))
-    # Add new entry
-    ACTIVE_NETWORKS+=("$container_name:$network_info")
+    ACTIVE_NETWORKS["$container_name"]="$network_info"
 }
 
 get_container_network() {
     local container_name=$1
-    for entry in "${ACTIVE_NETWORKS[@]}"; do
-        if [[ "$entry" =~ ^$container_name: ]]; then
-            echo "${entry#*:}"
-            return 0
-        fi
-    done
+    if [[ -n "${ACTIVE_NETWORKS[$container_name]:-}" ]]; then
+        echo "${ACTIVE_NETWORKS[$container_name]}"
+        return 0
+    fi
     return 1
 }
 
 unset_container_network() {
     local container_name=$1
-    ACTIVE_NETWORKS=($(printf '%s\n' "${ACTIVE_NETWORKS[@]}" | grep -v "^$container_name:" || true))
+    unset ACTIVE_NETWORKS["$container_name"]
 }
 
 set_container_ip() {
     local container_name=$1
     local ip=$2
-    # Remove existing entry if present
-    CONTAINER_IPS=($(printf '%s\n' "${CONTAINER_IPS[@]}" | grep -v "^$container_name:" || true))
-    # Add new entry
-    CONTAINER_IPS+=("$container_name:$ip")
+    CONTAINER_IPS["$container_name"]="$ip"
 }
 
 get_container_ip() {
     local container_name=$1
-    for entry in "${CONTAINER_IPS[@]}"; do
-        if [[ "$entry" =~ ^$container_name: ]]; then
-            echo "${entry#*:}"
-            return 0
-        fi
-    done
+    if [[ -n "${CONTAINER_IPS[$container_name]:-}" ]]; then
+        echo "${CONTAINER_IPS[$container_name]}"
+        return 0
+    fi
     return 1
 }
 
 unset_container_ip() {
     local container_name=$1
-    CONTAINER_IPS=($(printf '%s\n' "${CONTAINER_IPS[@]}" | grep -v "^$container_name:" || true))
+    unset CONTAINER_IPS["$container_name"]
 }
 
 is_ip_in_use() {
     local ip=$1
-    for entry in "${CONTAINER_IPS[@]}"; do
-        if [[ "$entry" =~ :$ip$ ]]; then
+    for container_name in "${!CONTAINER_IPS[@]}"; do
+        if [[ "${CONTAINER_IPS[$container_name]}" == "$ip" ]]; then
             return 0
         fi
     done
@@ -4560,14 +4548,7 @@ cleanup_failed_container() {
     cleanup_container_cgroups "$container_name" 2>/dev/null || true
     
     # Remove IP reservation
-    if [[ -n "${CONTAINER_IPS:-}" ]]; then
-        for ip in "${!CONTAINER_IPS[@]}"; do
-            if [[ "${CONTAINER_IPS[$ip]}" == "$container_name" ]]; then
-                unset CONTAINER_IPS["$ip"]
-                break
-            fi
-        done
-    fi
+    unset_container_ip "$container_name"
     
     # Remove container directory
     local container_dir="$CONTAINERS_DIR/$container_name"
@@ -4576,11 +4557,13 @@ cleanup_failed_container() {
     fi
     
     # Remove from tracking
-    unset ACTIVE_NAMESPACES["$container_name"] 2>/dev/null || true
-    unset ACTIVE_NETWORKS["$container_name"] 2>/dev/null || true
+    unset_container_namespace "$container_name" 2>/dev/null || true
+    unset_container_network "$container_name" 2>/dev/null || true
     
     return 0
-}container_ip() {
+}
+
+get_next_container_ip() {
     local ip="10.0.0.$NEXT_IP_OCTET"
     ((NEXT_IP_OCTET++))
     echo "$ip"
@@ -4716,7 +4699,7 @@ setup_container_ip() {
              "Seperti nomor telepon $container_ip berhasil didaftarkan"
     
     # Store container IP for tracking
-    CONTAINER_IPS["$container_name"]="$container_ip"
+    set_container_ip "$container_name" "$container_ip"
     
     # Update network configuration
     local ns_dir="$CONTAINERS_DIR/$container_name/namespaces"
@@ -4739,7 +4722,7 @@ setup_container_routing() {
     log_step 4 "Setting up routing for container: $container_name" \
               "Seperti mengatur jalur telepon langsung antar rumah tanpa lewat sentral"
     
-    local container_ip="${CONTAINER_IPS[$container_name]}"
+    local container_ip=$(get_container_ip "$container_name" 2>/dev/null || echo "")
     local veth_host="veth-${container_name}"
     
     if [[ -z "$container_ip" ]]; then
@@ -4834,8 +4817,8 @@ test_container_connectivity() {
     log_step 5 "Testing network connectivity between containers" \
               "Seperti menguji apakah telepon antar rumah bisa saling terhubung"
     
-    local ip1="${CONTAINER_IPS[$container1]}"
-    local ip2="${CONTAINER_IPS[$container2]}"
+    local ip1=$(get_container_ip "$container1" 2>/dev/null || echo "")
+    local ip2=$(get_container_ip "$container2" 2>/dev/null || echo "")
     
     if [[ -z "$ip1" || -z "$ip2" ]]; then
         log_error "Container IPs not found for connectivity test" \
@@ -4866,7 +4849,7 @@ cleanup_container_network() {
              "Seperti RT yang membersihkan sistem telepon rumah yang sudah kosong"
     
     local veth_host="veth-${container_name}"
-    local container_ip="${CONTAINER_IPS[$container_name]}"
+    local container_ip=$(get_container_ip "$container_name" 2>/dev/null || echo "")
     
     # Remove route to container
     if [[ -n "$container_ip" ]]; then
@@ -4895,8 +4878,8 @@ cleanup_container_network() {
     fi
     
     # Clean up tracking
-    unset ACTIVE_NETWORKS["$container_name"]
-    unset CONTAINER_IPS["$container_name"]
+    unset_container_network "$container_name"
+    unset_container_ip "$container_name"
     
     # Remove network configuration files
     local ns_dir="$CONTAINERS_DIR/$container_name/namespaces"
@@ -4925,7 +4908,7 @@ show_container_network_info() {
     echo "=== Network Information for Container: $container_name ==="
     
     local ns_name="container-$container_name"
-    local container_ip="${CONTAINER_IPS[$container_name]}"
+    local container_ip=$(get_container_ip "$container_name" 2>/dev/null || echo "")
     local veth_host="veth-${container_name}"
     local veth_container="veth-${container_name}-c"
     
@@ -4981,7 +4964,7 @@ list_container_networks() {
     printf "%-20s %-15s %-20s %-10s\n" "--------" "----------" "---------" "------"
     
     for container_name in "${!CONTAINER_IPS[@]}"; do
-        local ip="${CONTAINER_IPS[$container_name]}"
+        local ip=$(get_container_ip "$container_name" 2>/dev/null || echo "")
         local ns_name="container-$container_name"
         local status="❌"
         
@@ -5052,7 +5035,7 @@ debug_container_network() {
     local ns_name="container-$container_name"
     local veth_host="veth-${container_name}"
     local veth_container="veth-${container_name}-c"
-    local container_ip="${CONTAINER_IPS[$container_name]}"
+    local container_ip=$(get_container_ip "$container_name" 2>/dev/null || echo "")
     
     echo "=== Network Debug Information ==="
     echo "Container: $container_name"
@@ -5114,7 +5097,7 @@ debug_container_network() {
     if [[ ${#CONTAINER_IPS[@]} -gt 1 ]]; then
         for other_container in "${!CONTAINER_IPS[@]}"; do
             if [[ "$other_container" != "$container_name" ]]; then
-                local other_ip="${CONTAINER_IPS[$other_container]}"
+                local other_ip=$(get_container_ip "$other_container" 2>/dev/null || echo "")
                 echo "   Testing connectivity to $other_container ($other_ip):"
                 if ip netns exec "$ns_name" ping -c 1 -W 1 "$other_ip" >/dev/null 2>&1; then
                     echo "   ✅ Can reach $other_container"
@@ -5136,33 +5119,28 @@ debug_container_network() {
 # =============================================================================
 
 # Global cgroup tracking for cleanup
-# Using regular arrays for compatibility
-ACTIVE_CGROUPS=()
+# Using associative arrays for proper container tracking
+declare -A ACTIVE_CGROUPS
 
-# Helper functions for cgroup array management
+# Helper functions for cgroup associative array management
 set_container_cgroup() {
     local container_name=$1
     local cgroup_info=$2
-    # Remove existing entry if present
-    ACTIVE_CGROUPS=($(printf '%s\n' "${ACTIVE_CGROUPS[@]}" | grep -v "^$container_name:" || true))
-    # Add new entry
-    ACTIVE_CGROUPS+=("$container_name:$cgroup_info")
+    ACTIVE_CGROUPS["$container_name"]="$cgroup_info"
 }
 
 get_container_cgroup() {
     local container_name=$1
-    for entry in "${ACTIVE_CGROUPS[@]}"; do
-        if [[ "$entry" =~ ^$container_name: ]]; then
-            echo "${entry#*:}"
-            return 0
-        fi
-    done
+    if [[ -n "${ACTIVE_CGROUPS[$container_name]:-}" ]]; then
+        echo "${ACTIVE_CGROUPS[$container_name]}"
+        return 0
+    fi
     return 1
 }
 
 unset_container_cgroup() {
     local container_name=$1
-    ACTIVE_CGROUPS=($(printf '%s\n' "${ACTIVE_CGROUPS[@]}" | grep -v "^$container_name:" || true))
+    unset ACTIVE_CGROUPS["$container_name"]
 }
 
 # Create cgroup directory structure for memory and CPU control
@@ -5219,7 +5197,7 @@ cpu_limit_percent=$cpu_percent
 EOF
     
     # Mark cgroups as active for cleanup tracking
-    ACTIVE_CGROUPS["$container_name"]="memory,cpu"
+    set_container_cgroup "$container_name" "memory,cpu"
     
     log_success "Cgroup structure created successfully" \
                 "Sistem pembatasan listrik dan waktu kerja rumah siap"
@@ -5530,7 +5508,7 @@ cleanup_container_cgroups() {
     fi
     
     # Remove from active cgroups tracking
-    unset ACTIVE_CGROUPS["$container_name"]
+    unset_container_cgroup "$container_name"
     
     log_success "Cgroup cleanup completed for container: $container_name" \
                 "Sistem pembatasan rumah berhasil dibersihkan dan dilepas"
@@ -5853,43 +5831,6 @@ cleanup_container_cgroup() {
     cleanup_container_cgroups "$container_name"
     return $?
 }
-    
-    # Create basic device nodes
-    if [[ ! -e "$container_rootfs/dev/null" ]]; then
-        mknod "$container_rootfs/dev/null" c 1 3 2>/dev/null || true
-    fi
-    if [[ ! -e "$container_rootfs/dev/zero" ]]; then
-        mknod "$container_rootfs/dev/zero" c 1 5 2>/dev/null || true
-    fi
-    if [[ ! -e "$container_rootfs/dev/random" ]]; then
-        mknod "$container_rootfs/dev/random" c 1 8 2>/dev/null || true
-    fi
-    if [[ ! -e "$container_rootfs/dev/urandom" ]]; then
-        mknod "$container_rootfs/dev/urandom" c 1 9 2>/dev/null || true
-    fi
-    
-    # Create /dev/pts for pseudo terminals
-    create_directory "$container_rootfs/dev/pts"
-    if ! mount -t devpts devpts "$container_rootfs/dev/pts"; then
-        log_warn "Failed to mount /dev/pts, terminal functionality may be limited" \
-                 "Gagal memasang sistem terminal rumah"
-    else
-        log_debug "Mounted /dev/pts in container" "Sistem terminal rumah terpasang"
-    fi
-    
-    # Mount tmpfs for /tmp
-    if ! mount -t tmpfs tmpfs "$container_rootfs/tmp"; then
-        log_warn "Failed to mount tmpfs on /tmp" \
-                 "Gagal memasang ruang kerja sementara"
-    else
-        log_debug "Mounted tmpfs on /tmp" "Ruang kerja sementara terpasang"
-    fi
-    
-    log_success "Mount namespace applied successfully" \
-                "Semua rak buku dan perabotan rumah terpasang dengan baik"
-    
-    return 0
-}
 
 # Start container with all namespaces
 start_container_with_namespaces() {
@@ -6036,7 +5977,7 @@ cleanup_container_namespaces() {
     fi
     
     # Remove from active namespaces tracking
-    unset ACTIVE_NAMESPACES["$container_name"]
+    unset_container_namespace "$container_name"
     
     log_success "Namespace cleanup completed for container: $container_name" \
                 "Rumah telah dibersihkan dan siap untuk keluarga baru"
@@ -6076,7 +6017,9 @@ cleanup_all_namespaces() {
     fi
     
     # Clear the tracking array
-    ACTIVE_NAMESPACES=()
+    for key in "${!ACTIVE_NAMESPACES[@]}"; do
+        unset ACTIVE_NAMESPACES["$key"]
+    done
     
     log_success "Emergency namespace cleanup completed ($cleanup_count containers)" \
                 "Pembersihan darurat kompleks selesai ($cleanup_count rumah dibersihkan)"
