@@ -4527,7 +4527,11 @@ create_container() {
     
     log_info "Allocated IP address: $container_ip" \
              "Nomor telepon yang dialokasikan: $container_ip"
-    
+
+    # Reserve IP address BEFORE saving metadata
+    set_container_ip "$container_name" "$container_ip"
+    add_rollback_action "release_ip" "unset_container_ip '$container_name'" "Release IP address"
+
     # Save initial metadata with error handling
     if ! save_container_metadata "$container_name" "$memory_mb" "$cpu_percent" "$container_ip" "creating"; then
         log_error "Failed to save container metadata" \
@@ -4536,13 +4540,9 @@ create_container() {
         clear_operation_context "create_container"
         return 1
     fi
-    
+
     # Add rollback action for metadata cleanup
     add_rollback_action "remove_metadata" "rm -f '$container_dir/config.json'" "Remove container metadata"
-    
-    # Reserve IP address
-    set_container_ip "$container_name" "$container_ip"
-    add_rollback_action "release_ip" "unset_container_ip '$container_name'" "Release IP address"
     
     # Setup busybox for the container with error handling
     log_info "Setting up busybox for container" \
@@ -5272,9 +5272,19 @@ setup_container_bridge() {
     local bridge_name="pak-rt-br0"
     local bridge_ip="10.0.0.1/24"
 
-    # Check if bridge already exists
+    # Check if bridge already exists and is properly configured
     if ip link show "$bridge_name" >/dev/null 2>&1; then
         log_debug "Bridge $bridge_name already exists"
+
+        # Check if bridge has correct IP
+        if ! ip addr show "$bridge_name" | grep -q "10.0.0.1/24"; then
+            log_info "Adding IP to existing bridge" \
+                     "Menambahkan IP ke jembatan yang sudah ada"
+            ip addr add "$bridge_ip" dev "$bridge_name" 2>/dev/null || true
+        fi
+
+        # Ensure bridge is up
+        ip link set "$bridge_name" up 2>/dev/null || true
         return 0
     fi
 
@@ -5282,30 +5292,38 @@ setup_container_bridge() {
              "Seperti membangun jembatan komunikasi antar rumah"
 
     # Create bridge
-    if ! ip link add name "$bridge_name" type bridge; then
-        log_error "Failed to create bridge" \
-                  "Gagal membuat jembatan komunikasi"
-        return 1
+    if ! ip link add name "$bridge_name" type bridge 2>/dev/null; then
+        # If creation fails, check if it exists now (race condition)
+        if ip link show "$bridge_name" >/dev/null 2>&1; then
+            log_debug "Bridge created by another process"
+        else
+            log_error "Failed to create bridge" \
+                      "Gagal membuat jembatan komunikasi"
+            return 1
+        fi
     fi
 
-    # Assign IP to bridge
-    if ! ip addr add "$bridge_ip" dev "$bridge_name"; then
-        log_error "Failed to assign IP to bridge" \
-                  "Gagal memberikan IP ke jembatan"
-        ip link delete "$bridge_name" 2>/dev/null
-        return 1
+    # Assign IP to bridge (ignore if already exists)
+    if ! ip addr add "$bridge_ip" dev "$bridge_name" 2>/dev/null; then
+        # Check if IP is already assigned
+        if ip addr show "$bridge_name" | grep -q "10.0.0.1/24"; then
+            log_debug "Bridge IP already assigned"
+        else
+            log_error "Failed to assign IP to bridge" \
+                      "Gagal memberikan IP ke jembatan"
+            return 1
+        fi
     fi
 
     # Bring up bridge
-    if ! ip link set "$bridge_name" up; then
+    if ! ip link set "$bridge_name" up 2>/dev/null; then
         log_error "Failed to bring up bridge" \
                   "Gagal mengaktifkan jembatan"
-        ip link delete "$bridge_name" 2>/dev/null
         return 1
     fi
 
-    log_success "Container bridge created successfully" \
-                "Jembatan komunikasi antar rumah berhasil dibangun"
+    log_success "Container bridge ready" \
+                "Jembatan komunikasi antar rumah siap digunakan"
 
     return 0
 }
@@ -5355,12 +5373,32 @@ create_veth_pair() {
     local veth_host="${veth_names[0]}"
     local veth_container="${veth_names[1]}"
     
-    # Create veth pair
-    if ! ip link add "$veth_host" type veth peer name "$veth_container"; then
-        log_error "Failed to create veth pair" \
-                  "Gagal memasang kabel telepon antar rumah"
-        return 1
+    # Check if veth pair already exists
+    if ip link show "$veth_host" >/dev/null 2>&1; then
+        log_warn "Veth pair already exists, cleaning up first" \
+                 "Kabel telepon sudah ada, membersihkan dulu"
+        ip link delete "$veth_host" 2>/dev/null || true
+        sleep 0.1
     fi
+
+    # Create veth pair with retry
+    local retry_count=0
+    while [[ $retry_count -lt 3 ]]; do
+        if ip link add "$veth_host" type veth peer name "$veth_container" 2>/dev/null; then
+            break
+        else
+            ((retry_count++))
+            if [[ $retry_count -lt 3 ]]; then
+                log_debug "Veth creation failed, retrying ($retry_count/3)" \
+                          "Pemasangan kabel gagal, mencoba lagi"
+                sleep 0.2
+            else
+                log_error "Failed to create veth pair after 3 attempts" \
+                          "Gagal memasang kabel telepon setelah 3 kali percobaan"
+                return 1
+            fi
+        fi
+    done
     
     log_info "Veth pair created: $veth_host <-> $veth_container" \
              "Seperti kabel telepon terpasang antara sentral dan rumah"
