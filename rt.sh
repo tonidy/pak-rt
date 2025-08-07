@@ -7778,48 +7778,40 @@ start_container_process() {
             "
         ) &
     else
-        # Linux with namespace support
+        # Linux with namespace support - simplified version
         log_info "Running with Linux namespace isolation" \
                  "Berjalan dengan isolasi namespace Linux"
 
-        # Check if we can use user namespaces
+        # Create a simple script to run in container
+        local container_script="$container_rootfs/run_container.sh"
+        cat > "$container_script" << EOF
+#!/bin/busybox sh
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+export HOME=/root
+export USER=root
+export SHELL=/bin/sh
+hostname $container_name 2>/dev/null || true
+mount -t proc proc /proc 2>/dev/null || true
+mount -t sysfs sysfs /sys 2>/dev/null || true
+mount -t tmpfs tmpfs /tmp 2>/dev/null || true
+cd /
+if [ '$command_to_run' = '/bin/sh' ]; then
+    while true; do sleep 3600; done
+else
+    exec $command_to_run
+fi
+EOF
+        chmod +x "$container_script"
+
+        # Start container with simpler command
         if [[ "$ROOTLESS_MODE" == "true" ]]; then
             # Rootless mode - use user namespaces
             unshare --pid --mount --uts --ipc --user --map-root-user \
-                chroot "$container_rootfs" /bin/busybox sh -c "
-                    export PATH=/bin:/sbin:/usr/bin:/usr/sbin
-                    export HOME=/root
-                    export USER=root
-                    export SHELL=/bin/sh
-                    hostname $container_name 2>/dev/null || true
-                    mount -t proc proc /proc 2>/dev/null || true
-                    mount -t tmpfs tmpfs /tmp 2>/dev/null || true
-                    cd /
-                    if [ '$command_to_run' = '/bin/sh' ]; then
-                        while true; do sleep 3600; done
-                    else
-                        exec $command_to_run
-                    fi
-                " &
+                chroot "$container_rootfs" /run_container.sh &
         else
             # Root mode - use all namespaces except user
             unshare --pid --mount --uts --ipc --net \
-                chroot "$container_rootfs" /bin/busybox sh -c "
-                    export PATH=/bin:/sbin:/usr/bin:/usr/sbin
-                    export HOME=/root
-                    export USER=root
-                    export SHELL=/bin/sh
-                    hostname $container_name 2>/dev/null || true
-                    mount -t proc proc /proc 2>/dev/null || true
-                    mount -t sysfs sysfs /sys 2>/dev/null || true
-                    mount -t tmpfs tmpfs /tmp 2>/dev/null || true
-                    cd /
-                    if [ '$command_to_run' = '/bin/sh' ]; then
-                        while true; do sleep 3600; done
-                    else
-                        exec $command_to_run
-                    fi
-                " &
+                chroot "$container_rootfs" /run_container.sh &
         fi
     fi
 
