@@ -7983,6 +7983,10 @@ exec_container_command() {
 
         # Execute command in container namespaces with proper chroot
         local container_rootfs="$CONTAINERS_DIR/$container_name/rootfs"
+
+        # Debug: show the path being used
+        log_debug "Using container rootfs: $container_rootfs"
+
         exec nsenter -t "$container_pid" -p -m -u -i -n chroot "$container_rootfs" /bin/busybox sh -c "
             export PATH=/bin:/sbin:/usr/bin:/usr/sbin
             export HOME=/root
