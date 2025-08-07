@@ -7716,7 +7716,8 @@ start_container_process() {
         return 1
     fi
     
-    cat > "$temp_startup" << EOF
+    # Create startup script with proper variable substitution
+    cat > "$temp_startup" << 'SCRIPT_START'
 #!/bin/sh
 set -e
 
@@ -7726,7 +7727,9 @@ mount -t sysfs sysfs /sys 2>/dev/null || true
 mount -t tmpfs tmpfs /tmp 2>/dev/null || true
 
 # Set hostname
-hostname "${container_name}" 2>/dev/null || true
+SCRIPT_START
+    echo "hostname \"$container_name\" 2>/dev/null || true" >> "$temp_startup"
+    cat >> "$temp_startup" << 'SCRIPT_MIDDLE'
 
 # Setup basic environment
 export PATH="/bin:/sbin:/usr/bin:/usr/sbin"
@@ -7739,15 +7742,17 @@ cd /
 
 # Execute the requested command
 # If no specific command, run a simple sleep loop to keep container alive
-if [ "${command_to_run}" = "/bin/sh" ]; then
+SCRIPT_MIDDLE
+    echo "if [ \"$command_to_run\" = \"/bin/sh\" ]; then" >> "$temp_startup"
+    cat >> "$temp_startup" << 'SCRIPT_END'
     # For background containers, run a sleep loop
     while true; do
         sleep 3600
     done
 else
-    exec ${command_to_run}
-fi
-EOF
+SCRIPT_END
+    echo "    exec $command_to_run" >> "$temp_startup"
+    echo "fi" >> "$temp_startup"
     
     # Atomically move temp file to final location
     if mv "$temp_startup" "$startup_script"; then
