@@ -81,17 +81,17 @@ cleanup_resource_tests() {
     echo -e "\n${CYAN}🧹 Cleaning up resource test environment...${NC}"
     
     # Clean up test containers
-    "$RT_SCRIPT" delete-container "$TEST_CONTAINER_MEMORY" 2>/dev/null || true
-    "$RT_SCRIPT" delete-container "$TEST_CONTAINER_CPU" 2>/dev/null || true
-    "$RT_SCRIPT" delete-container "$TEST_CONTAINER_COMBINED" 2>/dev/null || true
+    "$RT_SCRIPT" delete "$TEST_CONTAINER_MEMORY" 2>/dev/null || true
+    "$RT_SCRIPT" delete "$TEST_CONTAINER_CPU" 2>/dev/null || true
+    "$RT_SCRIPT" delete "$TEST_CONTAINER_COMBINED" 2>/dev/null || true
     
     # Clean up any leftover test containers
     for memory in "${TEST_MEMORY_LIMITS[@]}"; do
-        "$RT_SCRIPT" delete-container "memory-test-${memory}mb" 2>/dev/null || true
+        "$RT_SCRIPT" delete "memory-test-${memory}mb" 2>/dev/null || true
     done
     
     for cpu in "${TEST_CPU_LIMITS[@]}"; do
-        "$RT_SCRIPT" delete-container "cpu-test-${cpu}pct" 2>/dev/null || true
+        "$RT_SCRIPT" delete "cpu-test-${cpu}pct" 2>/dev/null || true
     done
     
     # Emergency cleanup
@@ -116,7 +116,7 @@ test_memory_limit_validation() {
         local container_name="memory-test-${memory_mb}mb"
         echo -e "${YELLOW}Testing ${memory_mb}MB memory limit...${NC}"
         
-        if timeout 60 "$RT_SCRIPT" create-container "$container_name" \
+        if timeout 60 "$RT_SCRIPT" create "$container_name" \
            --ram="$memory_mb" --cpu=25 2>/dev/null; then
             
             # Verify memory cgroup was created and configured
@@ -143,7 +143,7 @@ test_memory_limit_validation() {
             fi
             
             # Cleanup
-            "$RT_SCRIPT" delete-container "$container_name" 2>/dev/null || true
+            "$RT_SCRIPT" delete "$container_name" 2>/dev/null || true
         else
             echo -e "${RED}  ❌ Failed to create container with ${memory_mb}MB limit${NC}"
         fi
@@ -173,7 +173,7 @@ test_cpu_limit_validation() {
         local container_name="cpu-test-${cpu_percent}pct"
         echo -e "${YELLOW}Testing ${cpu_percent}% CPU limit...${NC}"
         
-        if timeout 60 "$RT_SCRIPT" create-container "$container_name" \
+        if timeout 60 "$RT_SCRIPT" create "$container_name" \
            --ram=128 --cpu="$cpu_percent" 2>/dev/null; then
             
             # Verify CPU cgroup was created and configured
@@ -201,7 +201,7 @@ test_cpu_limit_validation() {
             fi
             
             # Cleanup
-            "$RT_SCRIPT" delete-container "$container_name" 2>/dev/null || true
+            "$RT_SCRIPT" delete "$container_name" 2>/dev/null || true
         else
             echo -e "${RED}  ❌ Failed to create container with ${cpu_percent}% CPU limit${NC}"
         fi
@@ -231,14 +231,14 @@ test_invalid_memory_limit_rejection() {
         local container_name="invalid-memory-test-$$"
         echo -e "${YELLOW}Testing invalid memory limit: $invalid_memory${NC}"
         
-        if ! timeout 30 "$RT_SCRIPT" create-container "$container_name" \
+        if ! timeout 30 "$RT_SCRIPT" create "$container_name" \
            --ram="$invalid_memory" --cpu=25 2>/dev/null; then
             echo -e "${GREEN}  ✅ Invalid memory limit '$invalid_memory' properly rejected${NC}"
             ((rejection_count++))
         else
             echo -e "${RED}  ❌ Invalid memory limit '$invalid_memory' was accepted${NC}"
             # Cleanup if container was created
-            "$RT_SCRIPT" delete-container "$container_name" 2>/dev/null || true
+            "$RT_SCRIPT" delete "$container_name" 2>/dev/null || true
         fi
     done
     
@@ -266,14 +266,14 @@ test_invalid_cpu_limit_rejection() {
         local container_name="invalid-cpu-test-$$"
         echo -e "${YELLOW}Testing invalid CPU limit: $invalid_cpu${NC}"
         
-        if ! timeout 30 "$RT_SCRIPT" create-container "$container_name" \
+        if ! timeout 30 "$RT_SCRIPT" create "$container_name" \
            --ram=128 --cpu="$invalid_cpu" 2>/dev/null; then
             echo -e "${GREEN}  ✅ Invalid CPU limit '$invalid_cpu' properly rejected${NC}"
             ((rejection_count++))
         else
             echo -e "${RED}  ❌ Invalid CPU limit '$invalid_cpu' was accepted${NC}"
             # Cleanup if container was created
-            "$RT_SCRIPT" delete-container "$container_name" 2>/dev/null || true
+            "$RT_SCRIPT" delete "$container_name" 2>/dev/null || true
         fi
     done
     
@@ -311,7 +311,7 @@ test_combined_resource_limits() {
         
         echo -e "${YELLOW}Testing ${memory_mb}MB + ${cpu_percent}% CPU...${NC}"
         
-        if timeout 60 "$RT_SCRIPT" create-container "$container_name" \
+        if timeout 60 "$RT_SCRIPT" create "$container_name" \
            --ram="$memory_mb" --cpu="$cpu_percent" 2>/dev/null; then
             
             # Verify both memory and CPU cgroups
@@ -350,7 +350,7 @@ test_combined_resource_limits() {
             fi
             
             # Cleanup
-            "$RT_SCRIPT" delete-container "$container_name" 2>/dev/null || true
+            "$RT_SCRIPT" delete "$container_name" 2>/dev/null || true
         else
             echo -e "${RED}  ❌ Failed to create container with combined limits${NC}"
         fi
@@ -375,7 +375,7 @@ test_resource_usage_monitoring() {
     
     echo -e "${CYAN}Testing resource usage monitoring capabilities...${NC}"
     
-    if timeout 60 "$RT_SCRIPT" create-container "$container_name" \
+    if timeout 60 "$RT_SCRIPT" create "$container_name" \
        --ram=256 --cpu=25 2>/dev/null; then
         
         # Test if we can get resource usage information
@@ -391,7 +391,7 @@ test_resource_usage_monitoring() {
                 echo -e "${GREEN}  ✅ Resource information contains memory and CPU data${NC}"
                 
                 # Cleanup
-                "$RT_SCRIPT" delete-container "$container_name" 2>/dev/null || true
+                "$RT_SCRIPT" delete "$container_name" 2>/dev/null || true
                 
                 log_resource_pass "Resource Usage Monitoring"
                 return 0
@@ -403,7 +403,7 @@ test_resource_usage_monitoring() {
         fi
         
         # Cleanup
-        "$RT_SCRIPT" delete-container "$container_name" 2>/dev/null || true
+        "$RT_SCRIPT" delete "$container_name" 2>/dev/null || true
     else
         echo -e "${RED}  ❌ Failed to create container for monitoring test${NC}"
     fi
@@ -425,12 +425,12 @@ test_docker_compatibility() {
     
     # Test standard format (should work)
     echo -e "${YELLOW}Testing standard format: --ram=128${NC}"
-    if timeout 60 "$RT_SCRIPT" create-container "${container_name}-1" \
+    if timeout 60 "$RT_SCRIPT" create "${container_name}-1" \
        --ram=128 --cpu=25 2>/dev/null; then
         echo -e "${GREEN}  ✅ Standard format works${NC}"
         ((docker_style_tests++))
         ((docker_style_passed++))
-        "$RT_SCRIPT" delete-container "${container_name}-1" 2>/dev/null || true
+        "$RT_SCRIPT" delete "${container_name}-1" 2>/dev/null || true
     else
         echo -e "${RED}  ❌ Standard format failed${NC}"
         ((docker_style_tests++))
@@ -438,12 +438,12 @@ test_docker_compatibility() {
     
     # Test memory format compatibility
     echo -e "${YELLOW}Testing memory format compatibility...${NC}"
-    if timeout 60 "$RT_SCRIPT" create-container "${container_name}-2" \
+    if timeout 60 "$RT_SCRIPT" create "${container_name}-2" \
        --memory=128 --cpu=25 2>/dev/null; then
         echo -e "${GREEN}  ✅ --memory format works${NC}"
         ((docker_style_tests++))
         ((docker_style_passed++))
-        "$RT_SCRIPT" delete-container "${container_name}-2" 2>/dev/null || true
+        "$RT_SCRIPT" delete "${container_name}-2" 2>/dev/null || true
     else
         echo -e "${YELLOW}  ⚠️  --memory format not supported (expected)${NC}"
         ((docker_style_tests++))

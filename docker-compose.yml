@@ -46,8 +46,8 @@ services:
         echo '📋 Quick Start Commands:';
         echo '  ./rt.sh help                     # Show help';
         echo '  ./rt.sh validate-system          # Check system';
-        echo '  ./rt.sh create-container webapp  # Create container';
-        echo '  ./rt.sh list-containers          # List containers';
+        echo '  ./rt.sh create webapp  # Create container';
+        echo '  ./rt.sh list          # List containers';
         echo '';
         echo '🔧 Rootless Mode:';
         echo '  ./rt.sh --rootless help          # Rootless help';
@@ -70,7 +70,7 @@ services:
     user: developer
     volumes:
       - .:/workspace
-      - rt-rootless-data:/home/developer/.local/share/rt-containers
+      - rt-rootless-data:/home/developer/.local/share/rt
     working_dir: /workspace
     environment:
       - CONTAINER_RUNTIME_ENV=rootless
@@ -88,14 +88,14 @@ services:
         echo '';
         echo '📋 Rootless Environment Info:';
         echo '  - User: developer (non-privileged)';
-        echo '  - Container Storage: ~/.local/share/rt-containers';
+        echo '  - Container Storage: ~/.local/share/rt';
         echo '';
         echo '🔍 Checking rootless support...';
         ./demo-rootless.sh;
         echo '';
         echo '💡 Try rootless commands:';
-        echo '  ./rt.sh --rootless create-container test';
-        echo '  ./rt.sh --rootless list-containers';
+        echo '  ./rt.sh --rootless create test';
+        echo '  ./rt.sh --rootless list';
         echo '';
         exec /bin/bash
       "
@@ -108,7 +108,7 @@ networks:
 volumes:
   rt-tmp:
     driver: local
-    name: rt-containers-data
+    name: rt-data
   rt-rootless-data:
     driver: local
-    name: rt-rootless-containers-data
+    name: rt-rootless-data

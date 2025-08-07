@@ -60,7 +60,7 @@ demo_header() {
 cleanup_demo() {
     echo -e "\n${YELLOW}🧹 Cleaning up demo containers...${NC}"
     for container in "${DEMO_CONTAINERS[@]}"; do
-        ./rt.sh delete-container "$container" 2>/dev/null || true
+        ./rt.sh delete "$container" 2>/dev/null || true
     done
     ./rt.sh cleanup-all 2>/dev/null || true
     echo -e "${GREEN}✅ Cleanup completed${NC}"
@@ -94,23 +94,23 @@ demo_basic_lifecycle() {
     
     echo -e "\n${GREEN}Step 1: Creating a new container${NC}"
     echo -e "${PURPLE}🏗️ RT sedang membangun rumah baru...${NC}"
-    ./rt.sh create-container rumah-demo --ram=256 --cpu=25
+    ./rt.sh create rumah-demo --ram=256 --cpu=25
     sleep $DEMO_DELAY
     
     echo -e "\n${GREEN}Step 2: Listing containers${NC}"
     echo -e "${PURPLE}📋 RT menunjukkan daftar rumah di kompleks...${NC}"
-    ./rt.sh list-containers
+    ./rt.sh list
     sleep $DEMO_DELAY
     
     echo -e "\n${GREEN}Step 3: Running container (will exit automatically)${NC}"
     echo -e "${PURPLE}🚪 RT membuka pintu rumah untuk dilihat...${NC}"
     echo -e "${YELLOW}Note: Container will run 'hostname && ps aux && sleep 3' then exit${NC}"
-    ./rt.sh run-container rumah-demo "hostname && ps aux && echo 'Container demo completed' && sleep 3"
+    ./rt.sh run rumah-demo "hostname && ps aux && echo 'Container demo completed' && sleep 3"
     sleep $DEMO_DELAY
     
     echo -e "\n${GREEN}Step 4: Deleting container${NC}"
     echo -e "${PURPLE}🏗️ RT merobohkan rumah yang sudah tidak dipakai...${NC}"
-    ./rt.sh delete-container rumah-demo
+    ./rt.sh delete rumah-demo
     
     echo -e "\n${GREEN}✅ Basic lifecycle demo completed!${NC}"
     echo -e "${PURPLE}🏠 Seperti RT yang berhasil mengelola satu rumah dari awal sampai akhir${NC}"
@@ -123,19 +123,19 @@ demo_process_isolation() {
                 "Seperti setiap rumah punya penomoran keluarga sendiri"
     
     echo -e "\n${GREEN}Step 1: Creating two containers${NC}"
-    ./rt.sh create-container rumah-a --ram=256 --cpu=25
-    ./rt.sh create-container rumah-b --ram=256 --cpu=25
+    ./rt.sh create rumah-a --ram=256 --cpu=25
+    ./rt.sh create rumah-b --ram=256 --cpu=25
     sleep $DEMO_DELAY
     
     echo -e "\n${GREEN}Step 2: Showing process isolation${NC}"
     echo -e "${PURPLE}👨 Setiap rumah punya Ayah dengan nomor 1 (PID 1)${NC}"
     
     echo -e "\n${CYAN}Processes in rumah-a:${NC}"
-    ./rt.sh run-container rumah-a "echo 'Rumah A - PID namespace:' && ps aux && sleep 2" &
+    ./rt.sh run rumah-a "echo 'Rumah A - PID namespace:' && ps aux && sleep 2" &
     sleep 3
     
     echo -e "\n${CYAN}Processes in rumah-b:${NC}"
-    ./rt.sh run-container rumah-b "echo 'Rumah B - PID namespace:' && ps aux && sleep 2" &
+    ./rt.sh run rumah-b "echo 'Rumah B - PID namespace:' && ps aux && sleep 2" &
     sleep 3
     
     wait
@@ -144,8 +144,8 @@ demo_process_isolation() {
     echo -e "${PURPLE}🏠 Setiap rumah punya sistem penomoran keluarga yang terpisah${NC}"
     
     # Cleanup
-    ./rt.sh delete-container rumah-a
-    ./rt.sh delete-container rumah-b
+    ./rt.sh delete rumah-a
+    ./rt.sh delete rumah-b
 }
 
 # Demo 3: Container Networking
@@ -155,26 +155,26 @@ demo_networking() {
                 "Seperti sistem telepon antar rumah di kompleks"
     
     echo -e "\n${GREEN}Step 1: Creating networked containers${NC}"
-    ./rt.sh create-container rumah-jakarta --ram=256 --cpu=25
-    ./rt.sh create-container rumah-bandung --ram=256 --cpu=25
+    ./rt.sh create rumah-jakarta --ram=256 --cpu=25
+    ./rt.sh create rumah-bandung --ram=256 --cpu=25
     sleep $DEMO_DELAY
     
     echo -e "\n${GREEN}Step 2: Checking IP addresses${NC}"
     echo -e "${PURPLE}📞 Setiap rumah mendapat nomor telepon (IP address)${NC}"
     
     echo -e "\n${CYAN}IP address rumah-jakarta:${NC}"
-    ./rt.sh run-container rumah-jakarta "ip addr show eth0 | grep inet" &
+    ./rt.sh run rumah-jakarta "ip addr show eth0 | grep inet" &
     sleep 2
     
     echo -e "\n${CYAN}IP address rumah-bandung:${NC}"
-    ./rt.sh run-container rumah-bandung "ip addr show eth0 | grep inet" &
+    ./rt.sh run rumah-bandung "ip addr show eth0 | grep inet" &
     sleep 2
     
     wait
     
     echo -e "\n${GREEN}Step 3: Testing connectivity${NC}"
     echo -e "${PURPLE}📞 Rumah Jakarta menelepon rumah Bandung...${NC}"
-    ./rt.sh run-container rumah-jakarta "ping -c 3 10.0.0.3 || echo 'Network test completed'" &
+    ./rt.sh run rumah-jakarta "ping -c 3 10.0.0.3 || echo 'Network test completed'" &
     sleep 5
     
     wait
@@ -183,8 +183,8 @@ demo_networking() {
     echo -e "${PURPLE}🏠 Sistem telepon kompleks berfungsi dengan baik${NC}"
     
     # Cleanup
-    ./rt.sh delete-container rumah-jakarta
-    ./rt.sh delete-container rumah-bandung
+    ./rt.sh delete rumah-jakarta
+    ./rt.sh delete rumah-bandung
 }
 
 # Demo 4: Resource Management
@@ -195,7 +195,7 @@ demo_resource_management() {
     
     echo -e "\n${GREEN}Step 1: Creating container with resource limits${NC}"
     echo -e "${PURPLE}💡 RT mengatur kuota listrik 128MB dan daya 20% untuk rumah${NC}"
-    ./rt.sh create-container rumah-hemat --ram=128 --cpu=20
+    ./rt.sh create rumah-hemat --ram=128 --cpu=20
     sleep $DEMO_DELAY
     
     echo -e "\n${GREEN}Step 2: Monitoring resource usage${NC}"
@@ -208,7 +208,7 @@ demo_resource_management() {
     echo -e "\n${GREEN}Step 3: Testing memory limit${NC}"
     echo -e "${PURPLE}⚡ Mencoba memakai listrik melebihi kuota...${NC}"
     echo -e "${YELLOW}Note: This may trigger OOM killer if memory limit is enforced${NC}"
-    ./rt.sh run-container rumah-hemat "echo 'Testing memory usage...' && sleep 2" &
+    ./rt.sh run rumah-hemat "echo 'Testing memory usage...' && sleep 2" &
     sleep 3
     
     wait
@@ -217,7 +217,7 @@ demo_resource_management() {
     echo -e "${PURPLE}🏠 Sistem pembagian resource kompleks berfungsi${NC}"
     
     # Cleanup
-    ./rt.sh delete-container rumah-hemat
+    ./rt.sh delete rumah-hemat
 }
 
 # Demo 5: Multi-Container Complex
@@ -229,14 +229,14 @@ demo_multi_container() {
     echo -e "\n${GREEN}Step 1: Building the complex${NC}"
     echo -e "${PURPLE}🏘️ RT membangun kompleks dengan 3 rumah...${NC}"
     
-    ./rt.sh create-container rumah-jakarta --ram=512 --cpu=50
-    ./rt.sh create-container rumah-bandung --ram=256 --cpu=25
-    ./rt.sh create-container rumah-surabaya --ram=384 --cpu=35
+    ./rt.sh create rumah-jakarta --ram=512 --cpu=50
+    ./rt.sh create rumah-bandung --ram=256 --cpu=25
+    ./rt.sh create rumah-surabaya --ram=384 --cpu=35
     sleep $DEMO_DELAY
     
     echo -e "\n${GREEN}Step 2: Complex overview${NC}"
     echo -e "${PURPLE}📋 RT menunjukkan kondisi seluruh kompleks...${NC}"
-    ./rt.sh list-containers
+    ./rt.sh list
     sleep $DEMO_DELAY
     
     echo -e "\n${GREEN}Step 3: Network topology${NC}"
@@ -249,27 +249,27 @@ demo_multi_container() {
     ./rt.sh debug resources
     sleep $DEMO_DELAY
     
-    echo -e "\n${GREEN}Step 5: Inter-container communication test${NC}"
+    echo -e "\n${GREEN}Step 5: Inter communication test${NC}"
     echo -e "${PURPLE}📞 Test komunikasi antar rumah...${NC}"
     
     # Start simple servers in background
-    ./rt.sh run-container rumah-jakarta "echo 'Jakarta server ready' && nc -l -p 8080" &
+    ./rt.sh run rumah-jakarta "echo 'Jakarta server ready' && nc -l -p 8080" &
     JAKARTA_PID=$!
     sleep 2
     
-    ./rt.sh run-container rumah-bandung "echo 'Connecting to Jakarta...' && echo 'Hello from Bandung' | nc 10.0.0.2 8080 || echo 'Connection test completed'" &
+    ./rt.sh run rumah-bandung "echo 'Connecting to Jakarta...' && echo 'Hello from Bandung' | nc 10.0.0.2 8080 || echo 'Connection test completed'" &
     sleep 3
     
     # Cleanup background processes
     kill $JAKARTA_PID 2>/dev/null || true
     wait
     
-    echo -e "\n${GREEN}✅ Multi-container complex demo completed!${NC}"
+    echo -e "\n${GREEN}✅ Multi complex demo completed!${NC}"
     echo -e "${PURPLE}🏠 Kompleks perumahan RT berfungsi dengan sempurna${NC}"
     
     # Cleanup
     for container in "${DEMO_CONTAINERS[@]}"; do
-        ./rt.sh delete-container "$container" 2>/dev/null || true
+        ./rt.sh delete "$container" 2>/dev/null || true
     done
 }
 
@@ -285,7 +285,7 @@ demo_debug_monitoring() {
     sleep $DEMO_DELAY
     
     echo -e "\n${GREEN}Step 2: Creating test container${NC}"
-    ./rt.sh create-container rumah-test --ram=256 --cpu=30
+    ./rt.sh create rumah-test --ram=256 --cpu=30
     sleep $DEMO_DELAY
     
     echo -e "\n${GREEN}Step 3: Container inspection${NC}"
@@ -309,7 +309,7 @@ demo_debug_monitoring() {
     echo -e "${PURPLE}🏠 Sistem inspeksi RT berfungsi dengan baik${NC}"
     
     # Cleanup
-    ./rt.sh delete-container rumah-test
+    ./rt.sh delete rumah-test
 }
 
 # Demo 7: Error Handling and Recovery
@@ -319,7 +319,7 @@ demo_error_recovery() {
                 "Seperti RT yang menangani masalah darurat kompleks"
     
     echo -e "\n${GREEN}Step 1: Creating test container${NC}"
-    ./rt.sh create-container rumah-error --ram=256 --cpu=25
+    ./rt.sh create rumah-error --ram=256 --cpu=25
     sleep $DEMO_DELAY
     
     echo -e "\n${GREEN}Step 2: Simulating corruption${NC}"
@@ -339,18 +339,18 @@ demo_error_recovery() {
     
     echo -e "\n${GREEN}Step 4: Recovery process${NC}"
     echo -e "${PURPLE}🔧 RT melakukan perbaikan darurat...${NC}"
-    ./rt.sh recover-container rumah-error || echo "Recovery process completed"
+    ./rt.sh recover rumah-error || echo "Recovery process completed"
     sleep $DEMO_DELAY
     
     echo -e "\n${GREEN}Step 5: Verification${NC}"
     echo -e "${PURPLE}✅ RT memverifikasi hasil perbaikan...${NC}"
-    ./rt.sh list-containers
+    ./rt.sh list
     
     echo -e "\n${GREEN}✅ Error handling and recovery demo completed!${NC}"
     echo -e "${PURPLE}🏠 Sistem darurat RT berfungsi dengan baik${NC}"
     
     # Cleanup
-    ./rt.sh delete-container rumah-error 2>/dev/null || true
+    ./rt.sh delete rumah-error 2>/dev/null || true
 }
 
 # Demo 8: Complete Educational Walkthrough

@@ -115,8 +115,8 @@ cleanup_integration_tests() {
     
     # Clean up test containers if they exist
     if command -v sudo >/dev/null 2>&1; then
-        sudo "$RT_SCRIPT" delete-container "$TEST_CONTAINER_1" 2>/dev/null || true
-        sudo "$RT_SCRIPT" delete-container "$TEST_CONTAINER_2" 2>/dev/null || true
+        sudo "$RT_SCRIPT" delete "$TEST_CONTAINER_1" 2>/dev/null || true
+        sudo "$RT_SCRIPT" delete "$TEST_CONTAINER_2" 2>/dev/null || true
         sudo "$RT_SCRIPT" cleanup-all 2>/dev/null || true
     fi
     
@@ -140,15 +140,15 @@ test_complete_container_lifecycle() {
     fi
     
     # Test container creation
-    if timeout $CONTAINER_TEST_TIMEOUT "$RT_SCRIPT" create-container "$TEST_CONTAINER_1" --ram=128 --cpu=25; then
+    if timeout $CONTAINER_TEST_TIMEOUT "$RT_SCRIPT" create "$TEST_CONTAINER_1" --ram=128 --cpu=25; then
         echo -e "${GREEN}Container creation successful${NC}"
         
         # Test container listing
-        if "$RT_SCRIPT" list-containers | grep -q "$TEST_CONTAINER_1"; then
+        if "$RT_SCRIPT" list | grep -q "$TEST_CONTAINER_1"; then
             echo -e "${GREEN}Container appears in listing${NC}"
             
             # Test container deletion
-            if "$RT_SCRIPT" delete-container "$TEST_CONTAINER_1"; then
+            if "$RT_SCRIPT" delete "$TEST_CONTAINER_1"; then
                 echo -e "${GREEN}Container deletion successful${NC}"
                 return 0
             else
@@ -175,15 +175,15 @@ test_container_resource_limits() {
     fi
     
     # Create container with specific resource limits
-    if timeout $CONTAINER_TEST_TIMEOUT "$RT_SCRIPT" create-container "$TEST_CONTAINER_1" --ram=256 --cpu=50; then
+    if timeout $CONTAINER_TEST_TIMEOUT "$RT_SCRIPT" create "$TEST_CONTAINER_1" --ram=256 --cpu=50; then
         # Verify resource limits are applied (basic check)
         if [ -d "/sys/fs/cgroup/memory/container-$TEST_CONTAINER_1" ] || [ -d "/sys/fs/cgroup/cpu/container-$TEST_CONTAINER_1" ]; then
             echo -e "${GREEN}Resource limits applied successfully${NC}"
-            "$RT_SCRIPT" delete-container "$TEST_CONTAINER_1" 2>/dev/null || true
+            "$RT_SCRIPT" delete "$TEST_CONTAINER_1" 2>/dev/null || true
             return 0
         else
             echo -e "${RED}Resource limits not applied${NC}"
-            "$RT_SCRIPT" delete-container "$TEST_CONTAINER_1" 2>/dev/null || true
+            "$RT_SCRIPT" delete "$TEST_CONTAINER_1" 2>/dev/null || true
             return 1
         fi
     else
@@ -202,8 +202,8 @@ test_container_network_connectivity() {
     fi
     
     # Create two containers
-    if timeout $CONTAINER_TEST_TIMEOUT "$RT_SCRIPT" create-container "$TEST_CONTAINER_1" --ram=128 --cpu=25 && \
-       timeout $CONTAINER_TEST_TIMEOUT "$RT_SCRIPT" create-container "$TEST_CONTAINER_2" --ram=128 --cpu=25; then
+    if timeout $CONTAINER_TEST_TIMEOUT "$RT_SCRIPT" create "$TEST_CONTAINER_1" --ram=128 --cpu=25 && \
+       timeout $CONTAINER_TEST_TIMEOUT "$RT_SCRIPT" create "$TEST_CONTAINER_2" --ram=128 --cpu=25; then
         
         # Check if network namespaces were created
         if ip netns list | grep -q "container-$TEST_CONTAINER_1" && \
@@ -211,13 +211,13 @@ test_container_network_connectivity() {
             echo -e "${GREEN}Network namespaces created successfully${NC}"
             
             # Cleanup
-            "$RT_SCRIPT" delete-container "$TEST_CONTAINER_1" 2>/dev/null || true
-            "$RT_SCRIPT" delete-container "$TEST_CONTAINER_2" 2>/dev/null || true
+            "$RT_SCRIPT" delete "$TEST_CONTAINER_1" 2>/dev/null || true
+            "$RT_SCRIPT" delete "$TEST_CONTAINER_2" 2>/dev/null || true
             return 0
         else
             echo -e "${RED}Network namespaces not created${NC}"
-            "$RT_SCRIPT" delete-container "$TEST_CONTAINER_1" 2>/dev/null || true
-            "$RT_SCRIPT" delete-container "$TEST_CONTAINER_2" 2>/dev/null || true
+            "$RT_SCRIPT" delete "$TEST_CONTAINER_1" 2>/dev/null || true
+            "$RT_SCRIPT" delete "$TEST_CONTAINER_2" 2>/dev/null || true
             return 1
         fi
     else
@@ -238,10 +238,10 @@ test_concurrent_container_operations() {
     # Create containers concurrently (simplified test)
     local container1_pid container2_pid
     
-    timeout $CONTAINER_TEST_TIMEOUT "$RT_SCRIPT" create-container "${TEST_CONTAINER_1}-concurrent" --ram=128 --cpu=25 &
+    timeout $CONTAINER_TEST_TIMEOUT "$RT_SCRIPT" create "${TEST_CONTAINER_1}-concurrent" --ram=128 --cpu=25 &
     container1_pid=$!
     
-    timeout $CONTAINER_TEST_TIMEOUT "$RT_SCRIPT" create-container "${TEST_CONTAINER_2}-concurrent" --ram=128 --cpu=25 &
+    timeout $CONTAINER_TEST_TIMEOUT "$RT_SCRIPT" create "${TEST_CONTAINER_2}-concurrent" --ram=128 --cpu=25 &
     container2_pid=$!
     
     # Wait for both to complete
@@ -257,8 +257,8 @@ test_concurrent_container_operations() {
     fi
     
     # Cleanup
-    "$RT_SCRIPT" delete-container "${TEST_CONTAINER_1}-concurrent" 2>/dev/null || true
-    "$RT_SCRIPT" delete-container "${TEST_CONTAINER_2}-concurrent" 2>/dev/null || true
+    "$RT_SCRIPT" delete "${TEST_CONTAINER_1}-concurrent" 2>/dev/null || true
+    "$RT_SCRIPT" delete "${TEST_CONTAINER_2}-concurrent" 2>/dev/null || true
     
     if $success; then
         echo -e "${GREEN}Concurrent container operations successful${NC}"
@@ -278,7 +278,7 @@ test_error_recovery() {
     fi
     
     # Test invalid container creation (should fail gracefully)
-    if ! "$RT_SCRIPT" create-container "invalid@name" --ram=32 --cpu=150 2>/dev/null; then
+    if ! "$RT_SCRIPT" create "invalid@name" --ram=32 --cpu=150 2>/dev/null; then
         echo -e "${GREEN}Invalid container creation properly rejected${NC}"
         return 0
     else

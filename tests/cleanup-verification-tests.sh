@@ -80,7 +80,7 @@ initial_cleanup() {
     
     # Clean up any existing test containers
     for container in "${TEST_CONTAINERS[@]}"; do
-        "$RT_SCRIPT" delete-container "$container" 2>/dev/null || true
+        "$RT_SCRIPT" delete "$container" 2>/dev/null || true
     done
     
     # Emergency cleanup
@@ -98,20 +98,20 @@ test_single_container_cleanup() {
     echo -e "${CYAN}Creating container for cleanup test: $container_name${NC}"
     
     # Create container
-    if timeout 60 "$RT_SCRIPT" create-container "$container_name" \
+    if timeout 60 "$RT_SCRIPT" create "$container_name" \
        --ram=128 --cpu=25 2>/dev/null; then
         echo -e "${GREEN}  ✅ Container created successfully${NC}"
         
         # Verify container exists
-        if "$RT_SCRIPT" list-containers 2>/dev/null | grep -q "$container_name"; then
+        if "$RT_SCRIPT" list 2>/dev/null | grep -q "$container_name"; then
             echo -e "${GREEN}  ✅ Container appears in listing${NC}"
             
             # Delete container
-            if "$RT_SCRIPT" delete-container "$container_name" 2>/dev/null; then
+            if "$RT_SCRIPT" delete "$container_name" 2>/dev/null; then
                 echo -e "${GREEN}  ✅ Container deletion command succeeded${NC}"
                 
                 # Verify container is gone
-                if ! "$RT_SCRIPT" list-containers 2>/dev/null | grep -q "$container_name"; then
+                if ! "$RT_SCRIPT" list 2>/dev/null | grep -q "$container_name"; then
                     echo -e "${GREEN}  ✅ Container removed from listing${NC}"
                     
                     # Verify filesystem cleanup
@@ -173,7 +173,7 @@ test_multiple_container_cleanup() {
     # Create multiple containers
     for container in "${containers_to_test[@]}"; do
         echo -e "${YELLOW}Creating container: $container${NC}"
-        if timeout 60 "$RT_SCRIPT" create-container "$container" \
+        if timeout 60 "$RT_SCRIPT" create "$container" \
            --ram=64 --cpu=20 2>/dev/null; then
             created_containers+=("$container")
             echo -e "${GREEN}  ✅ Container $container created${NC}"
@@ -194,7 +194,7 @@ test_multiple_container_cleanup() {
     local deleted_count=0
     for container in "${created_containers[@]}"; do
         echo -e "${YELLOW}Deleting container: $container${NC}"
-        if "$RT_SCRIPT" delete-container "$container" 2>/dev/null; then
+        if "$RT_SCRIPT" delete "$container" 2>/dev/null; then
             ((deleted_count++))
             echo -e "${GREEN}  ✅ Container $container deleted${NC}"
         else
@@ -210,7 +210,7 @@ test_multiple_container_cleanup() {
         local all_clean=true
         
         # Check listing
-        if "$RT_SCRIPT" list-containers 2>/dev/null | grep -q "$container"; then
+        if "$RT_SCRIPT" list 2>/dev/null | grep -q "$container"; then
             echo -e "${RED}  ❌ Container $container still in listing${NC}"
             all_clean=false
         fi
@@ -262,7 +262,7 @@ test_cleanup_all_command() {
     
     # Create test containers
     for container in "${test_containers[@]}"; do
-        if timeout 60 "$RT_SCRIPT" create-container "$container" \
+        if timeout 60 "$RT_SCRIPT" create "$container" \
            --ram=64 --cpu=20 2>/dev/null; then
             created_containers+=("$container")
             echo -e "${GREEN}  ✅ Container $container created${NC}"
@@ -286,7 +286,7 @@ test_cleanup_all_command() {
         local all_cleaned=true
         for container in "${created_containers[@]}"; do
             # Check if container still exists in any form
-            if "$RT_SCRIPT" list-containers 2>/dev/null | grep -q "$container" || \
+            if "$RT_SCRIPT" list 2>/dev/null | grep -q "$container" || \
                [[ -d "/tmp/containers/$container" ]] || \
                [[ -d "/sys/fs/cgroup/memory/container-$container" ]] || \
                [[ -d "/sys/fs/cgroup/cpu/container-$container" ]] || \
@@ -320,7 +320,7 @@ test_orphaned_resource_cleanup() {
     echo -e "${CYAN}Creating container and simulating orphaned resources...${NC}"
     
     # Create container
-    if timeout 60 "$RT_SCRIPT" create-container "$container_name" \
+    if timeout 60 "$RT_SCRIPT" create "$container_name" \
        --ram=128 --cpu=25 2>/dev/null; then
         echo -e "${GREEN}  ✅ Container created${NC}"
         
@@ -394,7 +394,7 @@ test_graceful_shutdown_cleanup() {
     echo -e "${CYAN}Testing graceful shutdown cleanup...${NC}"
     
     # Create container
-    if timeout 60 "$RT_SCRIPT" create-container "$container_name" \
+    if timeout 60 "$RT_SCRIPT" create "$container_name" \
        --ram=128 --cpu=25 2>/dev/null; then
         echo -e "${GREEN}  ✅ Container created${NC}"
         
@@ -404,7 +404,7 @@ test_graceful_shutdown_cleanup() {
         # Start a background process that will be interrupted
         (
             sleep 10
-            "$RT_SCRIPT" delete-container "$container_name" 2>/dev/null
+            "$RT_SCRIPT" delete "$container_name" 2>/dev/null
         ) &
         rt_pid=$!
         
@@ -435,7 +435,7 @@ test_graceful_shutdown_cleanup() {
             fi
             
             # Clean up the test container
-            "$RT_SCRIPT" delete-container "$container_name" 2>/dev/null || true
+            "$RT_SCRIPT" delete "$container_name" 2>/dev/null || true
             
             if [[ "$cleanup_ok" == "true" ]]; then
                 log_cleanup_pass "Graceful Shutdown Cleanup"
@@ -448,7 +448,7 @@ test_graceful_shutdown_cleanup() {
             echo -e "${RED}  ❌ Failed to send graceful shutdown signal${NC}"
             # Clean up
             kill -9 "$rt_pid" 2>/dev/null || true
-            "$RT_SCRIPT" delete-container "$container_name" 2>/dev/null || true
+            "$RT_SCRIPT" delete "$container_name" 2>/dev/null || true
             log_cleanup_fail "Graceful Shutdown Cleanup" "Could not test graceful shutdown"
             return 1
         fi

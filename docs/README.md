@@ -43,10 +43,10 @@ make test
 
 ```bash
 # Dalam development container
-./rt.sh create-container rumah-a --ram=512 --cpu=50
-./rt.sh list-containers
-./rt.sh run-container rumah-a
-./rt.sh delete-container rumah-a
+./rt.sh create rumah-a --ram=512 --cpu=50
+./rt.sh list
+./rt.sh run rumah-a
+./rt.sh delete rumah-a
 ```
 
 ## Development Commands

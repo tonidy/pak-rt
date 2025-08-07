@@ -24,7 +24,7 @@ echo -e "${COLOR_GREEN}dengan menggunakan user namespaces dan fitur Linux terbar
 echo -e "${COLOR_YELLOW}⚠️  KETERBATASAN MODE ROOTLESS:${COLOR_RESET}"
 echo -e "${COLOR_YELLOW}├── Resource limits (cgroups) mungkin tidak tersedia${COLOR_RESET}"
 echo -e "${COLOR_YELLOW}├── Beberapa fitur network mungkin terbatas${COLOR_RESET}"
-echo -e "${COLOR_YELLOW}├── Container disimpan di ~/.local/share/rt-containers${COLOR_RESET}"
+echo -e "${COLOR_YELLOW}├── Container disimpan di ~/.local/share/rt${COLOR_RESET}"
 echo -e "${COLOR_YELLOW}└── Perlu konfigurasi subuid/subgid untuk beberapa distro${COLOR_RESET}\n"
 
 echo -e "${COLOR_CYAN}🔍 MEMERIKSA DUKUNGAN ROOTLESS...${COLOR_RESET}"
@@ -82,16 +82,16 @@ echo -e "${COLOR_PURPLE}# 1. Cek dukungan sistem${COLOR_RESET}"
 echo -e "${COLOR_PURPLE}./rt.sh --rootless validate-system${COLOR_RESET}\n"
 
 echo -e "${COLOR_PURPLE}# 2. Buat container tanpa sudo${COLOR_RESET}"
-echo -e "${COLOR_PURPLE}./rt.sh --rootless create-container rumah-user${COLOR_RESET}\n"
+echo -e "${COLOR_PURPLE}./rt.sh --rootless create rumah-user${COLOR_RESET}\n"
 
 echo -e "${COLOR_PURPLE}# 3. Jalankan container${COLOR_RESET}"
-echo -e "${COLOR_PURPLE}./rt.sh --rootless run-container rumah-user${COLOR_RESET}\n"
+echo -e "${COLOR_PURPLE}./rt.sh --rootless run rumah-user${COLOR_RESET}\n"
 
 echo -e "${COLOR_PURPLE}# 4. List container${COLOR_RESET}"
-echo -e "${COLOR_PURPLE}./rt.sh --rootless list-containers${COLOR_RESET}\n"
+echo -e "${COLOR_PURPLE}./rt.sh --rootless list${COLOR_RESET}\n"
 
 echo -e "${COLOR_PURPLE}# 5. Hapus container${COLOR_RESET}"
-echo -e "${COLOR_PURPLE}./rt.sh --rootless delete-container rumah-user${COLOR_RESET}\n"
+echo -e "${COLOR_PURPLE}./rt.sh --rootless delete rumah-user${COLOR_RESET}\n"
 
 if [[ "$all_tools_available" == "true" && "$userns_enabled" == "1" ]]; then
     echo -e "${COLOR_GREEN}🎉 SISTEM SIAP UNTUK MODE ROOTLESS!${COLOR_RESET}"
@@ -101,13 +101,13 @@ if [[ "$all_tools_available" == "true" && "$userns_enabled" == "1" ]]; then
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         echo -e "\n${COLOR_CYAN}🏗️  MEMBUAT CONTAINER ROOTLESS...${COLOR_RESET}"
-        ./rt.sh --rootless create-container demo-rootless
+        ./rt.sh --rootless create demo-rootless
         
         echo -e "\n${COLOR_CYAN}📋 MELIHAT DAFTAR CONTAINER...${COLOR_RESET}"
-        ./rt.sh --rootless list-containers
+        ./rt.sh --rootless list
         
         echo -e "\n${COLOR_CYAN}🧹 MEMBERSIHKAN DEMO...${COLOR_RESET}"
-        ./rt.sh --rootless delete-container demo-rootless --force
+        ./rt.sh --rootless delete demo-rootless --force
         
         echo -e "\n${COLOR_GREEN}✅ DEMO SELESAI!${COLOR_RESET}"
     fi

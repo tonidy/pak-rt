@@ -92,7 +92,7 @@ ROOTLESS_MODE=${ROOTLESS_MODE:-false}
 # Initialize paths based on rootless mode
 init_paths() {
     if [[ "$ROOTLESS_MODE" == "true" ]]; then
-        CONTAINERS_DIR="$HOME/.local/share/rt-containers"
+        CONTAINERS_DIR="$HOME/.local/share/rt"
         BUSYBOX_PATH="$CONTAINERS_DIR/busybox"
     fi
 }
@@ -128,7 +128,7 @@ readonly NETWORK_MONITOR_INTERVAL=5
 # CLI INTERFACE AND COMMAND PARSING
 # =============================================================================
 
-# Parse command line arguments for create-container command
+# Parse command line arguments for create command
 parse_create_container_args() {
     local container_name=""
     local memory_mb="$DEFAULT_MEMORY_MB"
@@ -174,7 +174,7 @@ parse_create_container_args() {
 validate_create_container_args() {
     if [[ -z "$PARSED_CONTAINER_NAME" ]]; then
         log_error "Container name is required" "Seperti rumah harus punya nama untuk didaftarkan RT"
-        echo "Usage: $0 create-container <name> [--ram=MB] [--cpu=PERCENT]"
+        echo "Usage: $0 create <name> [--ram=MB] [--cpu=PERCENT]"
         return 1
     fi
     
@@ -2874,7 +2874,7 @@ show_interactive_help() {
         "create"|"create-container")
             show_create_help
             ;;
-        "list"|"list-containers")
+        "list"|"list")
             show_list_help
             ;;
         "run"|"run-container")
@@ -2909,10 +2909,10 @@ show_main_help() {
     echo -e "${COLOR_BLUE}=========================================================${COLOR_RESET}\n"
     
     echo -e "${COLOR_GREEN}📚 PERINTAH UTAMA (Main Commands):${COLOR_RESET}"
-    echo -e "${COLOR_GREEN}├── create-container  : Membuat rumah baru di kompleks${COLOR_RESET}"
-    echo -e "${COLOR_GREEN}├── list-containers   : Melihat daftar semua rumah${COLOR_RESET}"
-    echo -e "${COLOR_GREEN}├── run-container     : Masuk ke rumah untuk beraktivitas${COLOR_RESET}"
-    echo -e "${COLOR_GREEN}├── delete-container  : Menghapus rumah dari kompleks${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── create           : Membuat rumah baru di kompleks${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── list             : Melihat daftar semua rumah${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── run              : Masuk ke rumah untuk beraktivitas${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}├── delete           : Menghapus rumah dari kompleks${COLOR_RESET}"
     echo -e "${COLOR_GREEN}├── monitor          : Memantau penggunaan utilitas rumah${COLOR_RESET}"
     echo -e "${COLOR_GREEN}├── show-topology    : Melihat peta kompleks perumahan${COLOR_RESET}"
     echo -e "${COLOR_GREEN}├── recover-state    : Memulihkan kondisi rumah yang bermasalah${COLOR_RESET}"
@@ -2945,13 +2945,13 @@ show_main_help() {
 
     echo -e "\n${COLOR_YELLOW}💡 CONTOH PENGGUNAAN CEPAT:${COLOR_RESET}"
     echo -e "${COLOR_YELLOW}# Membuat rumah baru dengan nama 'webapp' (perlu sudo)${COLOR_RESET}"
-    echo -e "${COLOR_YELLOW}sudo $0 create-container webapp --ram=512 --cpu=50${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}sudo $0 create webapp --ram=512 --cpu=50${COLOR_RESET}"
     echo -e "\n${COLOR_YELLOW}# Membuat rumah tanpa sudo (mode rootless)${COLOR_RESET}"
-    echo -e "${COLOR_YELLOW}$0 --rootless create-container webapp${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}$0 --rootless create webapp${COLOR_RESET}"
     echo -e "\n${COLOR_YELLOW}# Masuk ke rumah 'webapp'${COLOR_RESET}"
-    echo -e "${COLOR_YELLOW}sudo $0 run-container webapp${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}sudo $0 run webapp${COLOR_RESET}"
     echo -e "\n${COLOR_YELLOW}# Melihat semua rumah di kompleks${COLOR_RESET}"
-    echo -e "${COLOR_YELLOW}sudo $0 list-containers${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}sudo $0 list${COLOR_RESET}"
     echo -e "\n${COLOR_YELLOW}# Memantau penggunaan utilitas rumah 'webapp'${COLOR_RESET}"
     echo -e "${COLOR_YELLOW}sudo $0 monitor webapp 60${COLOR_RESET}"
     
@@ -2964,7 +2964,7 @@ show_create_help() {
     echo -e "${COLOR_GREEN}===========================================${COLOR_RESET}\n"
     
     echo -e "${COLOR_BLUE}📝 SINTAKS:${COLOR_RESET}"
-    echo -e "${COLOR_BLUE}$0 create-container <nama_rumah> [--ram=MB] [--cpu=PERCENT]${COLOR_RESET}\n"
+    echo -e "${COLOR_BLUE}$0 create <nama_rumah> [--ram=MB] [--cpu=PERCENT]${COLOR_RESET}\n"
     
     echo -e "${COLOR_CYAN}📋 PARAMETER:${COLOR_RESET}"
     echo -e "${COLOR_CYAN}├── nama_rumah : Nama unik untuk rumah baru (wajib)${COLOR_RESET}"
@@ -2973,11 +2973,11 @@ show_create_help() {
     
     echo -e "${COLOR_YELLOW}💡 CONTOH PENGGUNAAN:${COLOR_RESET}"
     echo -e "${COLOR_YELLOW}# Rumah sederhana dengan setting default${COLOR_RESET}"
-    echo -e "${COLOR_YELLOW}sudo $0 create-container rumah-kecil${COLOR_RESET}\n"
+    echo -e "${COLOR_YELLOW}sudo $0 create rumah-kecil${COLOR_RESET}\n"
     echo -e "${COLOR_YELLOW}# Rumah besar dengan RAM 1GB dan CPU 75%${COLOR_RESET}"
-    echo -e "${COLOR_YELLOW}sudo $0 create-container rumah-besar --ram=1024 --cpu=75${COLOR_RESET}\n"
+    echo -e "${COLOR_YELLOW}sudo $0 create rumah-besar --ram=1024 --cpu=75${COLOR_RESET}\n"
     echo -e "${COLOR_YELLOW}# Rumah hemat dengan RAM 256MB dan CPU 25%${COLOR_RESET}"
-    echo -e "${COLOR_YELLOW}sudo $0 create-container rumah-hemat --ram=256 --cpu=25${COLOR_RESET}\n"
+    echo -e "${COLOR_YELLOW}sudo $0 create rumah-hemat --ram=256 --cpu=25${COLOR_RESET}\n"
     
     echo -e "${COLOR_PURPLE}🏘️  ANALOGI PERUMAHAN:${COLOR_RESET}"
     echo -e "${COLOR_PURPLE}Seperti RT yang membantu warga membangun rumah baru:${COLOR_RESET}"
@@ -2999,7 +2999,7 @@ show_list_help() {
     echo -e "${COLOR_GREEN}===================================${COLOR_RESET}\n"
     
     echo -e "${COLOR_BLUE}📝 SINTAKS:${COLOR_RESET}"
-    echo -e "${COLOR_BLUE}$0 list-containers [--verbose] [--monitor]${COLOR_RESET}\n"
+    echo -e "${COLOR_BLUE}$0 list [--verbose] [--monitor]${COLOR_RESET}\n"
     
     echo -e "${COLOR_CYAN}📋 OPSI:${COLOR_RESET}"
     echo -e "${COLOR_CYAN}├── --verbose : Tampilkan informasi detail${COLOR_RESET}"
@@ -3007,9 +3007,9 @@ show_list_help() {
     
     echo -e "${COLOR_YELLOW}💡 CONTOH PENGGUNAAN:${COLOR_RESET}"
     echo -e "${COLOR_YELLOW}# Daftar sederhana${COLOR_RESET}"
-    echo -e "${COLOR_YELLOW}sudo $0 list-containers${COLOR_RESET}\n"
+    echo -e "${COLOR_YELLOW}sudo $0 list${COLOR_RESET}\n"
     echo -e "${COLOR_YELLOW}# Daftar dengan detail lengkap${COLOR_RESET}"
-    echo -e "${COLOR_YELLOW}sudo $0 list-containers --verbose${COLOR_RESET}\n"
+    echo -e "${COLOR_YELLOW}sudo $0 list --verbose${COLOR_RESET}\n"
     
     echo -e "${COLOR_PURPLE}🏘️  ANALOGI: Seperti RT yang mengecek daftar warga dan status rumah${COLOR_RESET}\n"
 }
@@ -3020,7 +3020,7 @@ show_run_help() {
     echo -e "${COLOR_GREEN}===============================${COLOR_RESET}\n"
     
     echo -e "${COLOR_BLUE}📝 SINTAKS:${COLOR_RESET}"
-    echo -e "${COLOR_BLUE}$0 run-container <nama_rumah> [command]${COLOR_RESET}\n"
+    echo -e "${COLOR_BLUE}$0 run <nama_rumah> [command]${COLOR_RESET}\n"
     
     echo -e "${COLOR_CYAN}📋 PARAMETER:${COLOR_RESET}"
     echo -e "${COLOR_CYAN}├── nama_rumah : Nama rumah yang akan dimasuki${COLOR_RESET}"
@@ -3028,9 +3028,9 @@ show_run_help() {
     
     echo -e "${COLOR_YELLOW}💡 CONTOH PENGGUNAAN:${COLOR_RESET}"
     echo -e "${COLOR_YELLOW}# Masuk ke rumah dengan shell interaktif${COLOR_RESET}"
-    echo -e "${COLOR_YELLOW}sudo $0 run-container webapp${COLOR_RESET}\n"
+    echo -e "${COLOR_YELLOW}sudo $0 run webapp${COLOR_RESET}\n"
     echo -e "${COLOR_YELLOW}# Jalankan perintah khusus${COLOR_RESET}"
-    echo -e "${COLOR_YELLOW}sudo $0 run-container webapp 'ls -la'${COLOR_RESET}\n"
+    echo -e "${COLOR_YELLOW}sudo $0 run webapp 'ls -la'${COLOR_RESET}\n"
     
     echo -e "${COLOR_PURPLE}🏘️  ANALOGI: Seperti masuk ke rumah warga untuk beraktivitas${COLOR_RESET}\n"
 }
@@ -3041,7 +3041,7 @@ show_delete_help() {
     echo -e "${COLOR_GREEN}==============================${COLOR_RESET}\n"
     
     echo -e "${COLOR_BLUE}📝 SINTAKS:${COLOR_RESET}"
-    echo -e "${COLOR_BLUE}$0 delete-container <nama_rumah> [--force]${COLOR_RESET}\n"
+    echo -e "${COLOR_BLUE}$0 delete <nama_rumah> [--force]${COLOR_RESET}\n"
     
     echo -e "${COLOR_CYAN}📋 PARAMETER:${COLOR_RESET}"
     echo -e "${COLOR_CYAN}├── nama_rumah : Nama rumah yang akan dihapus${COLOR_RESET}"
@@ -3049,9 +3049,9 @@ show_delete_help() {
     
     echo -e "${COLOR_YELLOW}💡 CONTOH PENGGUNAAN:${COLOR_RESET}"
     echo -e "${COLOR_YELLOW}# Hapus dengan konfirmasi${COLOR_RESET}"
-    echo -e "${COLOR_YELLOW}sudo $0 delete-container old-webapp${COLOR_RESET}\n"
+    echo -e "${COLOR_YELLOW}sudo $0 delete old-webapp${COLOR_RESET}\n"
     echo -e "${COLOR_YELLOW}# Hapus paksa${COLOR_RESET}"
-    echo -e "${COLOR_YELLOW}sudo $0 delete-container old-webapp --force${COLOR_RESET}\n"
+    echo -e "${COLOR_YELLOW}sudo $0 delete old-webapp --force${COLOR_RESET}\n"
     
     echo -e "${COLOR_PURPLE}🏘️  ANALOGI: Seperti RT yang membantu warga pindah dan membersihkan rumah lama${COLOR_RESET}\n"
 }
@@ -4313,8 +4313,8 @@ create_container() {
     echo -e "${COLOR_GREEN}============================${COLOR_RESET}"
     echo ""
     
-    log_info "Container is ready to be started with: ./rt.sh run-container $container_name" \
-             "Rumah siap ditempati dengan perintah: ./rt.sh run-container $container_name"
+    log_info "Container is ready to be started with: ./rt.sh run $container_name" \
+             "Rumah siap ditempati dengan perintah: ./rt.sh run $container_name"
     
     return 0
 }
@@ -4924,7 +4924,7 @@ generate_veth_names() {
     echo "veth-h${name_hash}" "veth-c${name_hash}"
 }
 
-# Create veth pair for container-to-container communication
+# Create veth pair for container-to communication
 create_veth_pair() {
     local container_name=$1
     local peer_container=${2:-""}
@@ -5055,7 +5055,7 @@ setup_container_routing() {
     # Setup default route in container (optional, for internet access)
     local gateway_ip="10.0.0.1"
     if ! ip netns exec "container-$container_name" ip route add default via "$gateway_ip" 2>/dev/null; then
-        log_debug "Default route setup skipped (not required for container-to-container communication)" \
+        log_debug "Default route setup skipped (not required for container-to communication)" \
                   "Jalur ke luar kompleks tidak diperlukan untuk komunikasi antar rumah"
     fi
     
@@ -7222,9 +7222,9 @@ cmd_create_container() {
     
     log_info "Next steps:" \
              "Langkah selanjutnya untuk menempati rumah:"
-    echo "  1. Run container: $0 run-container $container_name"
-    echo "  2. List containers: $0 list-containers"
-    echo "  3. Delete container: $0 delete-container $container_name"
+    echo "  1. Run container: $0 run $container_name"
+    echo "  2. List containers: $0 list"
+    echo "  3. Delete container: $0 delete $container_name"
     
     return 0
 }
@@ -7238,7 +7238,7 @@ cmd_list_containers() {
         log_info "No containers directory found" \
                  "Belum ada kompleks perumahan yang terdaftar"
         echo "No containers created yet."
-        echo "Use '$0 create-container <name>' to create your first container."
+        echo "Use '$0 create <name>' to create your first container."
         return 0
     fi
     
@@ -7248,7 +7248,7 @@ cmd_list_containers() {
         log_info "No containers found" \
                  "Kompleks perumahan masih kosong, belum ada rumah yang terdaftar"
         echo "No containers created yet."
-        echo "Use '$0 create-container <name>' to create your first container."
+        echo "Use '$0 create <name>' to create your first container."
         return 0
     fi
     
@@ -7316,7 +7316,7 @@ cmd_run_container() {
     if [[ -z "$container_name" ]]; then
         log_error "Container name is required" \
                   "Seperti RT perlu tahu rumah mana yang akan dibuka untuk ditempati"
-        echo "Usage: $0 run-container <name> [command]"
+        echo "Usage: $0 run <name> [command]"
         return 1
     fi
     
@@ -7327,8 +7327,8 @@ cmd_run_container() {
     if ! container_exists "$container_name"; then
         log_error "Container '$container_name' does not exist" \
                   "Rumah '$container_name' tidak terdaftar di kompleks RT"
-        echo "Use '$0 list-containers' to see available containers."
-        echo "Use '$0 create-container $container_name' to create it first."
+        echo "Use '$0 list' to see available containers."
+        echo "Use '$0 create $container_name' to create it first."
         return 1
     fi
     
@@ -7362,7 +7362,7 @@ cmd_delete_container() {
     if [[ -z "$container_name" ]]; then
         log_error "Container name is required" \
                   "Seperti RT perlu tahu rumah mana yang akan dihapus dari kompleks"
-        echo "Usage: $0 delete-container <name>"
+        echo "Usage: $0 delete <name>"
         return 1
     fi
     
@@ -7373,7 +7373,7 @@ cmd_delete_container() {
     if ! container_exists "$container_name"; then
         log_error "Container '$container_name' does not exist" \
                   "Rumah '$container_name' tidak terdaftar di kompleks RT"
-        echo "Use '$0 list-containers' to see available containers."
+        echo "Use '$0 list' to see available containers."
         return 1
     fi
     
@@ -7934,11 +7934,11 @@ USAGE:
     $0 <command> [options]
 
 CONTAINER LIFECYCLE COMMANDS:
-    create-container <name> [--ram=MB] [--cpu=PERCENT]
+    create <name> [--ram=MB] [--cpu=PERCENT]
                                     Create new container with resource limits
-    list-containers                 List all containers with status and resources
-    run-container <name> [command]  Start container and provide interactive shell
-    delete-container <name>         Delete container and cleanup all resources
+    list                 List all containers with status and resources
+    run <name> [command]  Start container and provide interactive shell
+    delete <name>         Delete container and cleanup all resources
     cleanup-all                     Emergency cleanup of all containers and resources
 
 ERROR HANDLING & RECOVERY COMMANDS:
@@ -7961,11 +7961,11 @@ NETWORK COMMANDS (Task 6 Implementation):
 
 EXAMPLES:
     # Container lifecycle
-    $0 create-container rumah-a --ram=512 --cpu=50
-    $0 list-containers
-    $0 run-container rumah-a
-    $0 run-container rumah-a /bin/ls
-    $0 delete-container rumah-a
+    $0 create rumah-a --ram=512 --cpu=50
+    $0 list
+    $0 run rumah-a
+    $0 run rumah-a /bin/ls
+    $0 delete rumah-a
     $0 cleanup-all
 
     # Error handling and recovery
@@ -7987,10 +7987,10 @@ EXAMPLES:
 
 ANALOGY:
     RT Container Runtime seperti Rukun Tetangga (RT) yang mengatur kompleks perumahan.
-    - create-container: RT mendaftarkan rumah baru dengan alokasi listrik dan air
-    - list-containers: RT melihat daftar semua rumah dan status penghuninya
-    - run-container: RT membuka pintu rumah untuk ditempati warga
-    - delete-container: RT menghapus rumah dan membersihkan semua fasilitasnya
+    - create: RT mendaftarkan rumah baru dengan alokasi listrik dan air
+    - list: RT melihat daftar semua rumah dan status penghuninya
+    - run: RT membuka pintu rumah untuk ditempati warga
+    - delete: RT menghapus rumah dan membersihkan semua fasilitasnya
     - cleanup-all: RT membersihkan seluruh kompleks dalam keadaan darurat
 
 For more information, visit: https://github.com/container-learning/rt-runtime
@@ -8069,7 +8069,7 @@ main() {
 
     # Check dependencies and privileges for commands that need them
     case "$command" in
-        create-container|run-container|delete-container|cleanup-all|test-network|create-test-network|cleanup-test-network|show-network|test-connectivity|monitor-network|debug-network|list-networks|monitor|show-topology|debug|recover-state|validate-system|emergency-cleanup|security-audit)
+        create-container|create|run-container|run|delete-container|delete|list|list|cleanup-all|test-network|create-test-network|cleanup-test-network|show-network|test-connectivity|monitor-network|debug-network|list-networks|monitor|show-topology|debug|recover-state|validate-system|emergency-cleanup|security-audit)
             check_dependencies
             check_privileges
             ;;
@@ -8080,17 +8080,17 @@ main() {
     
     # Handle commands
     case "$command" in
-        "create-container")
+        "create-container"|"create")
             shift  # Remove command from arguments
             cmd_create_container "$@"
             ;;
-        "list-containers")
+        "list"|"list")
             cmd_list_containers
             ;;
-        "run-container")
+        "run-container"|"run")
             cmd_run_container "$2" "${3:-}"
             ;;
-        "delete-container")
+        "delete-container"|"delete")
             cmd_delete_container "$2"
             ;;
         "cleanup-all")

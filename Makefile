@@ -33,7 +33,7 @@ help:
 	@echo "  make demo-namespace - Namespace isolation demo"
 	@echo "  make demo-resources - Resource management demo"
 	@echo "  make demo-network   - Container networking demo"
-	@echo "  make demo-multi     - Multi-container application demo"
+	@echo "  make demo-multi     - Multi application demo"
 	@echo "  make demo-tour      - Complete educational tour"
 	@echo "  make demo-all       - Run all demo scenarios"
 	@echo ""
@@ -151,7 +151,7 @@ demo-network: check-docker
 	@docker-compose run --rm rt-dev bash -c "cd /workspace && ./demo-scenarios.sh container-networking"
 
 demo-multi: check-docker
-	@echo "🎬 Running multi-container demo..."
+	@echo "🎬 Running multi demo..."
 	@docker-compose run --rm rt-dev bash -c "cd /workspace && ./demo-scenarios.sh multi-container"
 
 demo-tour: check-docker

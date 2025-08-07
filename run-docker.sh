@@ -47,12 +47,12 @@ show_usage() {
     echo -e "  $0 dev build"
     echo
     echo -e "  ${COLOR_GREEN}# Execute RT command in container${COLOR_RESET}"
-    echo -e "  $0 dev exec ./rt.sh create-container webapp"
+    echo -e "  $0 dev exec ./rt.sh create webapp"
     echo
     echo -e "${COLOR_YELLOW}QUICK START:${COLOR_RESET}"
     echo -e "  1. $0 dev build     # Build the image"
     echo -e "  2. $0 dev start     # Start container"
-    echo -e "  3. Inside container: ./rt.sh create-container webapp"
+    echo -e "  3. Inside container: ./rt.sh create webapp"
     echo
 }
 

@@ -78,12 +78,12 @@ cleanup_stress_tests() {
     
     # Clean up all test containers
     for i in $(seq 1 $MAX_CONTAINERS); do
-        "$RT_SCRIPT" delete-container "stress-test-$i" 2>/dev/null || true
+        "$RT_SCRIPT" delete "stress-test-$i" 2>/dev/null || true
     done
     
     # Clean up concurrent test containers
     for i in $(seq 1 $CONCURRENT_OPERATIONS); do
-        "$RT_SCRIPT" delete-container "concurrent-test-$i" 2>/dev/null || true
+        "$RT_SCRIPT" delete "concurrent-test-$i" 2>/dev/null || true
     done
     
     # Emergency cleanup
@@ -108,7 +108,7 @@ test_multiple_container_creation() {
         local container_name="stress-test-$i"
         echo -e "${YELLOW}Creating container $i/$total_containers: $container_name${NC}"
         
-        if timeout 60 "$RT_SCRIPT" create-container "$container_name" \
+        if timeout 60 "$RT_SCRIPT" create "$container_name" \
            --ram=$MEMORY_STRESS_MB --cpu=$CPU_STRESS_PERCENT 2>/dev/null; then
             ((success_count++))
             echo -e "${GREEN}  ✅ Container $i created successfully${NC}"
@@ -121,8 +121,8 @@ test_multiple_container_creation() {
     
     # Verify containers exist
     local listed_count=0
-    if "$RT_SCRIPT" list-containers 2>/dev/null | grep -c "stress-test-" >/dev/null; then
-        listed_count=$("$RT_SCRIPT" list-containers 2>/dev/null | grep -c "stress-test-" || echo "0")
+    if "$RT_SCRIPT" list 2>/dev/null | grep -c "stress-test-" >/dev/null; then
+        listed_count=$("$RT_SCRIPT" list 2>/dev/null | grep -c "stress-test-" || echo "0")
     fi
     
     echo -e "${CYAN}Found $listed_count containers in listing${NC}"
@@ -151,7 +151,7 @@ test_concurrent_container_operations() {
         echo -e "${YELLOW}Starting concurrent creation $i: $container_name${NC}"
         
         (
-            if timeout 90 "$RT_SCRIPT" create-container "$container_name" \
+            if timeout 90 "$RT_SCRIPT" create "$container_name" \
                --ram=$MEMORY_STRESS_MB --cpu=$CPU_STRESS_PERCENT 2>/dev/null; then
                 echo "SUCCESS:$container_name" > "/tmp/concurrent-result-$i"
             else
@@ -211,12 +211,12 @@ test_rapid_container_lifecycle() {
         echo -e "${YELLOW}Cycle $cycle/$cycles: $container_name${NC}"
         
         # Create container
-        if timeout 45 "$RT_SCRIPT" create-container "$container_name" \
+        if timeout 45 "$RT_SCRIPT" create "$container_name" \
            --ram=$MEMORY_STRESS_MB --cpu=$CPU_STRESS_PERCENT 2>/dev/null; then
             echo -e "${GREEN}  ✅ Container created${NC}"
             
             # Immediately delete container
-            if timeout 30 "$RT_SCRIPT" delete-container "$container_name" 2>/dev/null; then
+            if timeout 30 "$RT_SCRIPT" delete "$container_name" 2>/dev/null; then
                 echo -e "${GREEN}  ✅ Container deleted${NC}"
                 ((success_cycles++))
             else
@@ -253,12 +253,12 @@ test_resource_exhaustion_handling() {
     
     echo -e "${YELLOW}Attempting to create container with ${high_memory_mb}MB memory...${NC}"
     
-    if timeout 60 "$RT_SCRIPT" create-container "$container_name" \
+    if timeout 60 "$RT_SCRIPT" create "$container_name" \
        --ram=$high_memory_mb --cpu=90 2>/dev/null; then
         echo -e "${GREEN}  ✅ High resource container created${NC}"
         
         # Clean up
-        "$RT_SCRIPT" delete-container "$container_name" 2>/dev/null || true
+        "$RT_SCRIPT" delete "$container_name" 2>/dev/null || true
         
         log_stress_pass "Resource Exhaustion Handling"
         return 0
@@ -286,7 +286,7 @@ test_network_stress() {
         local container_name="network-stress-$i"
         echo -e "${YELLOW}Creating network container $i: $container_name${NC}"
         
-        if timeout 60 "$RT_SCRIPT" create-container "$container_name" \
+        if timeout 60 "$RT_SCRIPT" create "$container_name" \
            --ram=$MEMORY_STRESS_MB --cpu=$CPU_STRESS_PERCENT 2>/dev/null; then
             ((success_count++))
             echo -e "${GREEN}  ✅ Network container $i created${NC}"
@@ -307,7 +307,7 @@ test_network_stress() {
     
     # Cleanup network containers
     for i in $(seq 1 $network_containers); do
-        "$RT_SCRIPT" delete-container "network-stress-$i" 2>/dev/null || true
+        "$RT_SCRIPT" delete "network-stress-$i" 2>/dev/null || true
     done
     
     if [[ $success_count -ge $((network_containers * 80 / 100)) ]]; then
@@ -339,7 +339,7 @@ test_resource_limit_stress() {
         
         echo -e "${YELLOW}Creating container $i with ${memory_mb}MB RAM, ${cpu_percent}% CPU${NC}"
         
-        if timeout 60 "$RT_SCRIPT" create-container "$container_name" \
+        if timeout 60 "$RT_SCRIPT" create "$container_name" \
            --ram=$memory_mb --cpu=$cpu_percent 2>/dev/null; then
             ((success_count++))
             echo -e "${GREEN}  ✅ Resource limit container $i created${NC}"
@@ -358,7 +358,7 @@ test_resource_limit_stress() {
     
     # Cleanup
     for i in $(seq 1 $limit_containers); do
-        "$RT_SCRIPT" delete-container "limit-stress-$i" 2>/dev/null || true
+        "$RT_SCRIPT" delete "limit-stress-$i" 2>/dev/null || true
     done
     
     echo -e "${CYAN}Resource limit stress: $success_count/$limit_containers containers successful${NC}"

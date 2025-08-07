@@ -50,9 +50,9 @@ docker-compose down
 
 ```bash
 # Inside rt-dev container
-./rt.sh create-container webapp --ram=512 --cpu=50
-./rt.sh run-container webapp
-./rt.sh list-containers
+./rt.sh create webapp --ram=512 --cpu=50
+./rt.sh run webapp
+./rt.sh list
 ./rt.sh monitor webapp 30
 ```
 
@@ -67,9 +67,9 @@ docker-compose down
 
 ```bash
 # Inside rt-rootless container
-./rt.sh --rootless create-container webapp
-./rt.sh --rootless run-container webapp
-./rt.sh --rootless list-containers
+./rt.sh --rootless create webapp
+./rt.sh --rootless run webapp
+./rt.sh --rootless list
 ./demo-rootless.sh
 ```
 
@@ -114,7 +114,7 @@ ROOTLESS_MODE=true
 
 ### rt-rootless Service
 - `.:/workspace` - Source code (read/write)
-- `rt-rootless-data:/home/developer/.local/share/rt-containers` - Rootless container storage
+- `rt-rootless-data:/home/developer/.local/share/rt` - Rootless container storage
 
 ## Network Configuration
 
@@ -132,10 +132,10 @@ ROOTLESS_MODE=true
 
 # Inside container:
 ./rt.sh validate-system
-./rt.sh create-container myapp --ram=256 --cpu=30
-./rt.sh list-containers
-./rt.sh run-container myapp
-./rt.sh delete-container myapp
+./rt.sh create myapp --ram=256 --cpu=30
+./rt.sh list
+./rt.sh run myapp
+./rt.sh delete myapp
 ```
 
 ### Example 2: Rootless Mode Testing
@@ -146,9 +146,9 @@ ROOTLESS_MODE=true
 
 # Inside container:
 ./demo-rootless.sh
-./rt.sh --rootless create-container test
-./rt.sh --rootless list-containers
-./rt.sh --rootless delete-container test
+./rt.sh --rootless create test
+./rt.sh --rootless list
+./rt.sh --rootless delete test
 ```
 
 ### Example 3: Development Workflow
@@ -163,7 +163,7 @@ ROOTLESS_MODE=true
 # Edit rt.sh on host, changes are reflected in container
 # Test changes inside container
 ./rt.sh help
-./rt.sh create-container test-changes
+./rt.sh create test-changes
 
 # Clean up when done
 ./run-rt-docker.sh clean

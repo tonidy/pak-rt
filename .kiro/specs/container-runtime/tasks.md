@@ -41,7 +41,7 @@
 
 - [x] 6. Implement network namespace dan container communication
   - Create network namespace untuk setiap container
-  - Implement veth pair creation untuk container-to-container communication
+  - Implement veth pair creation untuk container-to communication
   - Setup IP addressing dengan 10.0.0.x subnet ("Nomor telepon rumah")
   - Configure routing untuk direct container communication tanpa host
   - Implement network cleanup functions
@@ -58,10 +58,10 @@
 
 - [x] 8. Implement CLI interface dan command handlers
   - Create main CLI parser dengan command routing
-  - Implement create-container command dengan parameter validation
-  - Create list-containers command dengan status display dan analogi
-  - Implement run-container command dengan interactive shell
-  - Create delete-container command dengan confirmation
+  - Implement create command dengan parameter validation
+  - Create list command dengan status display dan analogi
+  - Implement run command dengan interactive shell
+  - Create delete command dengan confirmation
   - Add cleanup-all command untuk emergency cleanup
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
 

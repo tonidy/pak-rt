@@ -19,7 +19,7 @@ Proyek ini bertujuan untuk membuat bash script yang mengimplementasikan containe
 
 ### Requirement 2: Network Namespace dengan Container Communication
 
-**User Story:** Sebagai developer yang ingin memahami container networking, saya ingin membuat network namespace yang memungkinkan 2 container berkomunikasi langsung tanpa melalui host, sehingga saya dapat memahami konsep container-to-container networking.
+**User Story:** Sebagai developer yang ingin memahami container networking, saya ingin membuat network namespace yang memungkinkan 2 container berkomunikasi langsung tanpa melalui host, sehingga saya dapat memahami konsep container-to networking.
 
 #### Acceptance Criteria
 
@@ -58,10 +58,10 @@ Proyek ini bertujuan untuk membuat bash script yang mengimplementasikan containe
 
 #### Acceptance Criteria
 
-1. WHEN user menjalankan `./rt.sh create-container` command THEN script SHALL create container dengan nama, RAM, dan CPU limit yang ditentukan
-2. WHEN user menjalankan `./rt.sh list-container` command THEN script SHALL show semua container yang ada dengan status dan resource usage
-3. WHEN user menjalankan `./rt.sh run-container` command THEN script SHALL start container dan provide interactive shell
-4. WHEN user menjalankan `./rt.sh delete-container` command THEN script SHALL cleanup semua resources (namespaces, cgroups, network)
+1. WHEN user menjalankan `./rt.sh create` command THEN script SHALL create container dengan nama, RAM, dan CPU limit yang ditentukan
+2. WHEN user menjalankan `./rt.sh list` command THEN script SHALL show semua container yang ada dengan status dan resource usage
+3. WHEN user menjalankan `./rt.sh run` command THEN script SHALL start container dan provide interactive shell
+4. WHEN user menjalankan `./rt.sh delete` command THEN script SHALL cleanup semua resources (namespaces, cgroups, network)
 5. IF command syntax salah THEN script SHALL show usage help dan examples
 
 ### Requirement 6: Educational Output dan Monitoring

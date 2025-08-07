@@ -12,7 +12,7 @@ services:
       # Mount source code for development
       - .:/workspace:rw
       # Persistent storage for containers
-      - rt-containers:/tmp/containers
+      - rt:/tmp/containers
       # Access to host's cgroup (for resource management)
       - /sys/fs/cgroup:/sys/fs/cgroup:rw
     networks:
@@ -38,7 +38,7 @@ services:
     user: rtuser
     volumes:
       - .:/workspace:rw
-      - rt-rootless-containers:/home/rtuser/.local/share/rt-containers
+      - rt-rootless:/home/rtuser/.local/share/rt
     networks:
       - rt-network
     environment:
@@ -61,7 +61,7 @@ services:
     privileged: true
     volumes:
       - .:/workspace:rw
-      - rt-demo-containers:/tmp/containers
+      - rt-demo:/tmp/containers
     networks:
       - rt-network
     environment:
@@ -80,13 +80,13 @@ services:
         ./rt.sh validate-system;
         echo '';
         echo '🚀 Creating demo container...';
-        ./rt.sh create-container demo-webapp --ram=256 --cpu=30;
+        ./rt.sh create demo-webapp --ram=256 --cpu=30;
         echo '';
         echo '📊 Listing containers...';
-        ./rt.sh list-containers;
+        ./rt.sh list;
         echo '';
         echo '💡 Demo completed! You can now interact with RT runtime.';
-        echo 'Try: ./rt.sh run-container demo-webapp';
+        echo 'Try: ./rt.sh run demo-webapp';
         exec /bin/bash
       "
 
@@ -96,9 +96,9 @@ networks:
     name: rt-kompleks-network
 
 volumes:
-  rt-containers:
-    name: rt-containers-data
-  rt-rootless-containers:
+  rt:
+    name: rt-data
+  rt-rootless:
     name: rt-rootless-data
-  rt-demo-containers:
+  rt-demo:
     name: rt-demo-data

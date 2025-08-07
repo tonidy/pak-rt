@@ -117,7 +117,7 @@ sudo ./tests/cgroup-tests.sh
   - Network namespace creation
   - Veth pair setup
   - IP address assignment
-  - Container-to-container connectivity
+  - Container-to connectivity
   - Network monitoring dan debugging
   - Network cleanup procedures
 

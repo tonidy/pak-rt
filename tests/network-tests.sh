@@ -187,7 +187,7 @@ main() {
         echo -e "${COLOR_GREEN}All tests passed!${COLOR_RESET}"
         echo ""
         echo "Network namespace implementation is working correctly."
-        echo "Container-to-container communication is functional."
+        echo "Container-to communication is functional."
         exit 0
     else
         echo -e "${COLOR_RED}Some tests failed!${COLOR_RESET}"

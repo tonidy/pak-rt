@@ -53,7 +53,7 @@ RT Container Runtime menggunakan analogi sistem Rukun Tetangga (RT) di Indonesia
 
 ```bash
 # Dalam container "rumah-jakarta"
-./rt.sh run-container rumah-jakarta
+./rt.sh run rumah-jakarta
 $ ps aux
 USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
 root         1  0.0  0.0   1320   272 ?        S    10:30   0:00 busybox init  # 👨 Ayah
@@ -349,7 +349,7 @@ ip netns exec container-bandung ip link set veth-bandung up
 #### Cara Interaktif (Tinggal di Rumah)
 ```bash
 # Dari rumah Jakarta nelpon rumah Bandung
-./rt.sh run-container rumah-jakarta
+./rt.sh run rumah-jakarta
 $ ping 10.0.0.3
 PING 10.0.0.3: 64 bytes from 10.0.0.3: seq=0 ttl=64 time=0.123 ms
 # ✅ Telepon nyambung!
@@ -358,7 +358,7 @@ PING 10.0.0.3: 64 bytes from 10.0.0.3: seq=0 ttl=64 time=0.123 ms
 $ nc -l -p 8080  # Buka warung di rumah (listen port 8080)
 
 # Dari rumah Bandung, kunjungi warung
-./rt.sh run-container rumah-bandung  
+./rt.sh run rumah-bandung  
 $ nc 10.0.0.2 8080  # Pergi ke warung di rumah Jakarta
 # ✅ Bisa belanja di warung tetangga!
 ```
@@ -366,35 +366,35 @@ $ nc 10.0.0.2 8080  # Pergi ke warung di rumah Jakarta
 #### Cara Command (Kunjungan Singkat)
 ```bash
 # Test koneksi dengan kunjungan singkat
-./rt.sh run-container rumah-jakarta "ping -c 3 10.0.0.3"
+./rt.sh run rumah-jakarta "ping -c 3 10.0.0.3"
 # 📞 Jakarta menelepon Bandung 3 kali
 
-./rt.sh run-container rumah-bandung "ping -c 3 10.0.0.2"  
+./rt.sh run rumah-bandung "ping -c 3 10.0.0.2"  
 # 📞 Bandung menelepon Jakarta 3 kali
 
 # Cek nomor telepon masing-masing rumah
-./rt.sh run-container rumah-jakarta "ip addr show eth0 | grep inet"
-./rt.sh run-container rumah-bandung "ip addr show eth0 | grep inet"
+./rt.sh run rumah-jakarta "ip addr show eth0 | grep inet"
+./rt.sh run rumah-bandung "ip addr show eth0 | grep inet"
 
 # 💬 Chat Antar Rumah (Ngobrol Seperti WhatsApp)
 
 ## Chat Sederhana (Kirim Pesan)
 ```bash
 # Jakarta siap terima chat
-./rt.sh run-container rumah-jakarta "nc -l -p 8080" &
+./rt.sh run rumah-jakarta "nc -l -p 8080" &
 sleep 2
 
 # Bandung kirim pesan ke Jakarta
-./rt.sh run-container rumah-bandung "echo 'Halo Jakarta! Apa kabar hari ini?' | nc 10.0.0.2 8080"
+./rt.sh run rumah-bandung "echo 'Halo Jakarta! Apa kabar hari ini?' | nc 10.0.0.2 8080"
 ```
 
 ## Chat Interaktif (Ngobrol Real-time)
 ```bash
 # Terminal 1: Jakarta jadi host chat room
-./rt.sh run-container rumah-jakarta "nc -l -p 8080"
+./rt.sh run rumah-jakarta "nc -l -p 8080"
 
 # Terminal 2: Bandung join chat room
-./rt.sh run-container rumah-bandung "nc 10.0.0.2 8080"
+./rt.sh run rumah-bandung "nc 10.0.0.2 8080"
 
 # Sekarang bisa ketik pesan bolak-balik seperti chat!
 # Jakarta ketik: "Halo Bandung, cuaca di sana gimana?"
@@ -404,48 +404,48 @@ sleep 2
 ## 📁 File Sharing Antar Rumah (Pakai Busybox Tools)
 ```bash
 # Jakarta buat file untuk dibagi
-./rt.sh run-container rumah-jakarta "echo 'Resep rendang enak dari Jakarta' > /tmp/resep.txt"
+./rt.sh run rumah-jakarta "echo 'Resep rendang enak dari Jakarta' > /tmp/resep.txt"
 
 # Jakarta share file via netcat (simple file server)
-./rt.sh run-container rumah-jakarta "nc -l -p 8080 < /tmp/resep.txt" &
+./rt.sh run rumah-jakarta "nc -l -p 8080 < /tmp/resep.txt" &
 
 # Bandung terima file dari Jakarta
-./rt.sh run-container rumah-bandung "nc 10.0.0.2 8080 > /tmp/resep-dari-jakarta.txt"
+./rt.sh run rumah-bandung "nc 10.0.0.2 8080 > /tmp/resep-dari-jakarta.txt"
 
 # Bandung cek file yang diterima
-./rt.sh run-container rumah-bandung "cat /tmp/resep-dari-jakarta.txt"
+./rt.sh run rumah-bandung "cat /tmp/resep-dari-jakarta.txt"
 
 # Share multiple files dengan tar
-./rt.sh run-container rumah-jakarta "echo 'File 1' > /tmp/file1.txt && echo 'File 2' > /tmp/file2.txt"
-./rt.sh run-container rumah-jakarta "cd /tmp && tar -czf - file1.txt file2.txt | nc -l -p 8080" &
-./rt.sh run-container rumah-bandung "nc 10.0.0.2 8080 | tar -xzf - -C /tmp"
+./rt.sh run rumah-jakarta "echo 'File 1' > /tmp/file1.txt && echo 'File 2' > /tmp/file2.txt"
+./rt.sh run rumah-jakarta "cd /tmp && tar -czf - file1.txt file2.txt | nc -l -p 8080" &
+./rt.sh run rumah-bandung "nc 10.0.0.2 8080 | tar -xzf - -C /tmp"
 
 # Cek hasil extract
-./rt.sh run-container rumah-bandung "ls -la /tmp/file*.txt && cat /tmp/file1.txt"
+./rt.sh run rumah-bandung "ls -la /tmp/file*.txt && cat /tmp/file1.txt"
 ```
 
 ## 🎮 Game & Aktivitas Seru Antar Rumah
 ```bash
 # 🎯 Game Tebak Angka
-./rt.sh run-container rumah-jakarta 'echo "Tebak angka 1-10!" | nc -l -p 8080' &
-./rt.sh run-container rumah-bandung "echo '7' | nc 10.0.0.2 8080"
+./rt.sh run rumah-jakarta 'echo "Tebak angka 1-10!" | nc -l -p 8080' &
+./rt.sh run rumah-bandung "echo '7' | nc 10.0.0.2 8080"
 
 # 📊 Sharing System Info (seperti pamer spek HP)
-./rt.sh run-container rumah-jakarta "uname -a && free && df -h | nc -l -p 8080" &
-./rt.sh run-container rumah-bandung "nc 10.0.0.2 8080"
+./rt.sh run rumah-jakarta "uname -a && free && df -h | nc -l -p 8080" &
+./rt.sh run rumah-bandung "nc 10.0.0.2 8080"
 
 # 🕐 Sync Waktu Antar Rumah
-./rt.sh run-container rumah-jakarta "date | nc -l -p 8080" &
-./rt.sh run-container rumah-bandung "echo 'Waktu di Bandung:' && date && echo 'Waktu di Jakarta:' && nc 10.0.0.2 8080"
+./rt.sh run rumah-jakarta "date | nc -l -p 8080" &
+./rt.sh run rumah-bandung "echo 'Waktu di Bandung:' && date && echo 'Waktu di Jakarta:' && nc 10.0.0.2 8080"
 
 # 📝 Kirim Log/Diary Harian
-./rt.sh run-container rumah-jakarta "echo 'Diary Jakarta hari ini: Cuaca cerah, traffic macet' > /tmp/diary.txt"
-./rt.sh run-container rumah-jakarta "nc -l -p 8080 < /tmp/diary.txt" &
-./rt.sh run-container rumah-bandung "echo 'Baca diary Jakarta:' && nc 10.0.0.2 8080"
+./rt.sh run rumah-jakarta "echo 'Diary Jakarta hari ini: Cuaca cerah, traffic macet' > /tmp/diary.txt"
+./rt.sh run rumah-jakarta "nc -l -p 8080 < /tmp/diary.txt" &
+./rt.sh run rumah-bandung "echo 'Baca diary Jakarta:' && nc 10.0.0.2 8080"
 
 # 🔍 Remote Monitoring (cek kondisi rumah tetangga)
-./rt.sh run-container rumah-jakarta "ps aux && echo '---' && free && echo '---' && uptime | nc -l -p 8080" &
-./rt.sh run-container rumah-bandung "echo 'Status rumah Jakarta:' && nc 10.0.0.2 8080"
+./rt.sh run rumah-jakarta "ps aux && echo '---' && free && echo '---' && uptime | nc -l -p 8080" &
+./rt.sh run rumah-bandung "echo 'Status rumah Jakarta:' && nc 10.0.0.2 8080"
 ```
 ```
 
@@ -454,7 +454,7 @@ sleep 2
 ### 1. Create Container = Bangun Rumah Baru
 
 ```bash
-./rt.sh create-container rumah-baru --ram=512 --cpu=50
+./rt.sh create rumah-baru --ram=512 --cpu=50
 
 🏗️ RT sedang membangun rumah baru...
 ├── 📋 Daftar rumah ke RT (create metadata)
@@ -468,7 +468,7 @@ sleep 2
 ### 2. List Containers = Daftar Rumah di Kompleks
 
 ```bash
-./rt.sh list-containers
+./rt.sh list
 
 🏘️ Daftar Rumah di Kompleks RT
 ================================
@@ -484,7 +484,7 @@ sleep 2
 
 #### Mode Interaktif (Tinggal di Rumah)
 ```bash
-./rt.sh run-container rumah-jakarta
+./rt.sh run rumah-jakarta
 
 🚪 RT membuka pintu rumah-jakarta...
 ├── � Cek kunci rumah (validate container)
@@ -507,7 +507,7 @@ eth0: 10.0.0.2/24  # Ini nomor telepon rumah
 #### Mode Command (Kunjungan Singkat)
 ```bash
 # Kunjungi rumah untuk tugas tertentu
-./rt.sh run-container rumah-jakarta "hostname && ps aux"
+./rt.sh run rumah-jakarta "hostname && ps aux"
 
 🚪 RT membuka pintu untuk kunjungan singkat...
 ├── 🏠 Masuk ke rumah-jakarta
@@ -516,9 +516,9 @@ eth0: 10.0.0.2/24  # Ini nomor telepon rumah
 └── 🚪 Keluar dari rumah
 
 # Contoh tugas-tugas lain
-./rt.sh run-container rumah-jakarta "ls -la /home"     # Lihat isi rumah
-./rt.sh run-container rumah-jakarta "ping -c 3 10.0.0.3"  # Tes telepon
-./rt.sh run-container rumah-jakarta "free -h"         # Cek pemakaian listrik
+./rt.sh run rumah-jakarta "ls -la /home"     # Lihat isi rumah
+./rt.sh run rumah-jakarta "ping -c 3 10.0.0.3"  # Tes telepon
+./rt.sh run rumah-jakarta "free -h"         # Cek pemakaian listrik
 ```
 
 **Analogi:**
@@ -528,7 +528,7 @@ eth0: 10.0.0.2/24  # Ini nomor telepon rumah
 ### 4. Delete Container = Robohkan Rumah
 
 ```bash
-./rt.sh delete-container rumah-lama
+./rt.sh delete rumah-lama
 
 🏗️ RT akan merobohkan rumah-lama...
 ├── 👨‍👩‍👧‍👦 Evakuasi penghuni (stop processes)
@@ -596,27 +596,27 @@ eth0: 10.0.0.2/24  # Ini nomor telepon rumah
 #### Debug dengan Command Parameter (Inspeksi Manual)
 ```bash
 # Cek proses yang berjalan di rumah
-./rt.sh run-container rumah-jakarta "ps aux"
+./rt.sh run rumah-jakarta "ps aux"
 # 👨‍👩‍👧‍👦 Lihat siapa saja yang ada di rumah
 
 # Cek pemakaian memori
-./rt.sh run-container rumah-jakarta "free -h"
+./rt.sh run rumah-jakarta "free -h"
 # 💡 Lihat pemakaian listrik rumah
 
 # Cek koneksi jaringan
-./rt.sh run-container rumah-jakarta "netstat -tuln"
+./rt.sh run rumah-jakarta "netstat -tuln"
 # 📞 Lihat sambungan telepon yang aktif
 
 # Cek sistem file
-./rt.sh run-container rumah-jakarta "df -h"
+./rt.sh run rumah-jakarta "df -h"
 # 🏠 Lihat kapasitas penyimpanan rumah
 
 # Cek log sistem
-./rt.sh run-container rumah-jakarta "dmesg | tail -10"
+./rt.sh run rumah-jakarta "dmesg | tail -10"
 # 📋 Lihat catatan kejadian terakhir
 
 # Test stress untuk cek limit
-./rt.sh run-container rumah-jakarta "stress --vm 1 --vm-bytes 100M --timeout 10s"
+./rt.sh run rumah-jakarta "stress --vm 1 --vm-bytes 100M --timeout 10s"
 # ⚡ Test apakah meteran listrik berfungsi
 ```
 
@@ -652,7 +652,7 @@ eth0: 10.0.0.2/24  # Ini nomor telepon rumah
 
 #### 🏠 Mode Interaktif (Tinggal di Rumah)
 ```bash
-./rt.sh run-container rumah-jakarta
+./rt.sh run rumah-jakarta
 # Masuk dan tinggal di rumah, bisa melakukan berbagai aktivitas
 ```
 
@@ -672,7 +672,7 @@ rumah-jakarta:~$ exit            # Keluar dari rumah
 
 #### 📋 Mode Command (Kunjungan Singkat)
 ```bash
-./rt.sh run-container rumah-jakarta "hostname && ps aux"
+./rt.sh run rumah-jakarta "hostname && ps aux"
 # Kunjungi rumah untuk tugas tertentu, lalu langsung pulang
 ```
 
@@ -685,16 +685,16 @@ rumah-jakarta:~$ exit            # Keluar dari rumah
 **Contoh Penggunaan:**
 ```bash
 # Single command
-./rt.sh run-container rumah-jakarta "hostname"
+./rt.sh run rumah-jakarta "hostname"
 
 # Multiple commands dengan &&
-./rt.sh run-container rumah-jakarta "echo 'Halo' && date && whoami"
+./rt.sh run rumah-jakarta "echo 'Halo' && date && whoami"
 
 # Background process
-./rt.sh run-container rumah-jakarta "nc -l -p 8080" &
+./rt.sh run rumah-jakarta "nc -l -p 8080" &
 
 # Conditional commands
-./rt.sh run-container rumah-jakarta "ping -c 1 10.0.0.3 && echo 'Koneksi OK' || echo 'Koneksi Gagal'"
+./rt.sh run rumah-jakarta "ping -c 1 10.0.0.3 && echo 'Koneksi OK' || echo 'Koneksi Gagal'"
 ```
 
 ### Kapan Menggunakan Mode Mana?

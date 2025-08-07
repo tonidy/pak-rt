@@ -250,7 +250,7 @@ graph TB
 stateDiagram-v2
     [*] --> Planning: RT merencanakan rumah baru
     
-    Planning --> Creating: ./rt.sh create-container
+    Planning --> Creating: ./rt.sh create
     state Creating {
         [*] --> ValidateInput: Validasi nama & resource
         ValidateInput --> CreateDir: Buat direktori rumah
@@ -264,7 +264,7 @@ stateDiagram-v2
     
     Creating --> Stopped: Rumah siap ditempati
     
-    Stopped --> Running: ./rt.sh run-container
+    Stopped --> Running: ./rt.sh run
     state Running {
         [*] --> SetupNamespaces: Setup fasilitas rumah
         SetupNamespaces --> StartInit: Panggil kepala keluarga (PID 1)
@@ -288,7 +288,7 @@ stateDiagram-v2
     Recovery --> Stopped: Pemulihan berhasil
     Recovery --> Deleting: Tidak bisa diperbaiki
     
-    Stopped --> Deleting: ./rt.sh delete-container
+    Stopped --> Deleting: ./rt.sh delete
     state Deleting {
         [*] --> StopProcesses: Evakuasi penghuni
         StopProcesses --> CleanupNetwork: Cabut telepon

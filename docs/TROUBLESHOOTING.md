@@ -20,7 +20,7 @@
 
 **Gejala:**
 ```bash
-$ ./rt.sh create-container test
+$ ./rt.sh create test
 bash: ./rt.sh: Permission denied
 ```
 
@@ -32,7 +32,7 @@ bash: ./rt.sh: Permission denied
 chmod +x rt.sh
 
 # Atau jalankan dengan bash
-bash rt.sh create-container test
+bash rt.sh create test
 ```
 
 **Analogi RT:** Seperti kunci kantor RT yang harus dibuka dulu sebelum bisa masuk
@@ -41,7 +41,7 @@ bash rt.sh create-container test
 
 **Gejala:**
 ```bash
-$ ./rt.sh create-container test
+$ ./rt.sh create test
 ./rt.sh: line 45: unshare: command not found
 ```
 
@@ -66,7 +66,7 @@ sudo yum install util-linux iproute2 coreutils
 
 **Gejala:**
 ```bash
-$ ./rt.sh create-container test
+$ ./rt.sh create test
 ERROR: Root privileges required for namespace operations
 ```
 
@@ -75,7 +75,7 @@ ERROR: Root privileges required for namespace operations
 **Solusi:**
 ```bash
 # Jalankan dengan sudo
-sudo ./rt.sh create-container test
+sudo ./rt.sh create test
 
 # Atau dalam development container
 make dev  # Sudah privileged mode
@@ -137,7 +137,7 @@ make dev  # Sudah privileged mode
 
 **Gejala:**
 ```bash
-$ ./rt.sh create-container test --ram=512 --cpu=50
+$ ./rt.sh create test --ram=512 --cpu=50
 ERROR: Failed to create namespace: 1
 ```
 
@@ -160,20 +160,20 @@ ls /proc/sys/kernel/ns_last_pid  # PID namespace support
 ls /sys/fs/cgroup/               # Cgroup support
 
 # Check parameters
-./rt.sh create-container test --ram=abc --cpu=50  # Invalid RAM
+./rt.sh create test --ram=abc --cpu=50  # Invalid RAM
 ```
 
 **Solusi:**
 ```bash
 # Ensure running as root
-sudo ./rt.sh create-container test --ram=512 --cpu=50
+sudo ./rt.sh create test --ram=512 --cpu=50
 
 # Free up disk space
 ./rt.sh cleanup-all
 rm -rf /tmp/containers/old-*
 
 # Use valid parameters
-./rt.sh create-container test --ram=256 --cpu=25
+./rt.sh create test --ram=256 --cpu=25
 ```
 
 **Analogi RT:** Seperti RT yang tidak bisa bangun rumah karena lahan penuh atau izin tidak lengkap
@@ -182,14 +182,14 @@ rm -rf /tmp/containers/old-*
 
 **Gejala:**
 ```bash
-$ ./rt.sh run-container test
+$ ./rt.sh run test
 ERROR: Container process failed to start
 ```
 
 **Diagnostic Steps:**
 ```bash
 # Check container status
-./rt.sh list-containers
+./rt.sh list
 
 # Check container files
 ls -la /tmp/containers/test/
@@ -204,8 +204,8 @@ cat /tmp/containers/test/logs/container.log
 **Solusi:**
 ```bash
 # Recreate container
-./rt.sh delete-container test
-./rt.sh create-container test --ram=256 --cpu=25
+./rt.sh delete test
+./rt.sh create test --ram=256 --cpu=25
 
 # Fix busybox if missing
 ./rt.sh setup-busybox
@@ -238,7 +238,7 @@ cat /sys/fs/cgroup/memory/container-test/cgroup.procs
 **Solusi:**
 ```bash
 # Force cleanup
-./rt.sh delete-container test --force
+./rt.sh delete test --force
 
 # Or manual cleanup
 sudo kill -9 $(cat /tmp/containers/test/container.pid)
@@ -264,7 +264,7 @@ ping: bad address '10.0.0.3'
 ./rt.sh debug network
 
 # Check IP addresses
-./rt.sh run-container rumah-a
+./rt.sh run rumah-a
 $ ip addr show
 
 # Check routing
@@ -277,11 +277,11 @@ ip link show | grep veth
 **Solusi:**
 ```bash
 # Recreate network
-./rt.sh delete-container rumah-a
-./rt.sh delete-container rumah-b
+./rt.sh delete rumah-a
+./rt.sh delete rumah-b
 ./rt.sh cleanup-all
-./rt.sh create-container rumah-a --ram=256 --cpu=25
-./rt.sh create-container rumah-b --ram=256 --cpu=25
+./rt.sh create rumah-a --ram=256 --cpu=25
+./rt.sh create rumah-b --ram=256 --cpu=25
 
 # Manual network fix
 sudo ip link add veth-a type veth peer name veth-a-host
@@ -381,8 +381,8 @@ cat /sys/fs/cgroup/memory/container-name/memory.usage_in_bytes
 **Solusi:**
 ```bash
 # Increase memory limit
-./rt.sh delete-container test
-./rt.sh create-container test --ram=1024 --cpu=50
+./rt.sh delete test
+./rt.sh create test --ram=1024 --cpu=50
 
 # Or optimize application memory usage
 # Reduce memory-intensive operations
@@ -409,8 +409,8 @@ cat /sys/fs/cgroup/cpu/container-name/cpu.cfs_period_us
 **Solusi:**
 ```bash
 # Increase CPU limit
-./rt.sh delete-container test
-./rt.sh create-container test --ram=512 --cpu=75
+./rt.sh delete test
+./rt.sh create test --ram=512 --cpu=75
 
 # Check if throttling is necessary
 # Maybe reduce CPU-intensive operations
@@ -445,7 +445,7 @@ sudo rm -rf /tmp/containers/old-container/
 sudo rm -f /tmp/containers/*/logs/*.log
 
 # Move to different location with more space
-export CONTAINERS_DIR="/var/lib/rt-containers"
+export CONTAINERS_DIR="/var/lib/rt"
 mkdir -p "$CONTAINERS_DIR"
 ```
 
@@ -473,15 +473,15 @@ mount | grep cgroup
 **Solusi:**
 ```bash
 # Ensure running as root
-sudo ./rt.sh create-container test
+sudo ./rt.sh create test
 
 # Fix cgroup permissions (if needed)
 sudo chown -R root:root /sys/fs/cgroup/
 sudo chmod -R 755 /sys/fs/cgroup/
 
 # For cgroup v2 systems
-sudo mkdir -p /sys/fs/cgroup/rt-containers
-echo "+memory +cpu" | sudo tee /sys/fs/cgroup/rt-containers/cgroup.subtree_control
+sudo mkdir -p /sys/fs/cgroup/rt
+echo "+memory +cpu" | sudo tee /sys/fs/cgroup/rt/cgroup.subtree_control
 ```
 
 **Analogi RT:** Seperti RT yang tidak punya izin untuk mengatur meteran listrik
@@ -506,7 +506,7 @@ ls /proc/sys/kernel/unprivileged_userns_clone
 **Solusi:**
 ```bash
 # Run as root
-sudo ./rt.sh create-container test
+sudo ./rt.sh create test
 
 # Enable unprivileged namespaces (if supported)
 echo 1 | sudo tee /proc/sys/kernel/unprivileged_userns_clone
@@ -563,7 +563,7 @@ brew install docker-compose
 **Gejala:**
 ```bash
 # Dalam container
-$ ./rt.sh create-container test
+$ ./rt.sh create test
 ERROR: Operation not permitted
 ```
 
@@ -683,7 +683,7 @@ sudo ip link show | grep veth | cut -d: -f2 | xargs -I {} sudo ip link delete {}
 find /sys/fs/cgroup -name "container-*" -type d | xargs sudo rmdir 2>/dev/null || true
 
 # Step 5: Restart dari awal
-./rt.sh create-container test --ram=256 --cpu=25
+./rt.sh create test --ram=256 --cpu=25
 ```
 
 **Analogi RT:** Seperti RT yang melakukan renovasi total kompleks
@@ -695,11 +695,11 @@ find /sys/fs/cgroup -name "container-*" -type d | xargs sudo rmdir 2>/dev/null |
 ./rt.sh recover-state
 
 # Manual recovery for specific container
-./rt.sh recover-container container-name
+./rt.sh recover container-name
 
 # If recovery fails, recreate
-./rt.sh delete-container container-name --force
-./rt.sh create-container container-name --ram=512 --cpu=50
+./rt.sh delete container-name --force
+./rt.sh create container-name --ram=512 --cpu=50
 ```
 
 ### 3. Network Recovery
@@ -712,8 +712,8 @@ sudo ip link show | grep veth | cut -d: -f2 | xargs -I {} sudo ip link delete {}
 sudo ip netns list | xargs -I {} sudo ip netns delete {} 2>/dev/null || true
 
 # Recreate containers with networking
-./rt.sh create-container rumah-a --ram=256 --cpu=25
-./rt.sh create-container rumah-b --ram=256 --cpu=25
+./rt.sh create rumah-a --ram=256 --cpu=25
+./rt.sh create rumah-b --ram=256 --cpu=25
 ```
 
 ## 📞 Getting Help

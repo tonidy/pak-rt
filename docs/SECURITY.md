@@ -217,6 +217,6 @@ Potential areas for future security improvements:
 1. **SELinux/AppArmor Integration**: Additional mandatory access controls
 2. **Seccomp Profiles**: System call filtering for containers
 3. **User Namespace Mapping**: More sophisticated user isolation
-4. **Network Security Policies**: Container-to-container communication rules
+4. **Network Security Policies**: Container-to communication rules
 5. **Resource Monitoring**: Real-time security event detection
 6. **Encrypted Storage**: Protection for sensitive container data

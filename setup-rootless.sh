@@ -166,7 +166,7 @@ verify_setup() {
     
     if [[ ${#issues[@]} -eq 0 ]]; then
         echo -e "\n${COLOR_GREEN}🎉 ROOTLESS SETUP COMPLETE!${COLOR_RESET}"
-        echo -e "${COLOR_GREEN}You can now use: ./rt.sh --rootless create-container nama-container${COLOR_RESET}"
+        echo -e "${COLOR_GREEN}You can now use: ./rt.sh --rootless create nama-container${COLOR_RESET}"
         return 0
     else
         echo -e "\n${COLOR_RED}❌ Setup incomplete. Issues found: ${issues[*]}${COLOR_RESET}"
@@ -203,8 +203,8 @@ main() {
     if [[ $? -eq 0 ]]; then
         echo -e "\n${COLOR_PURPLE}🚀 Next steps:${COLOR_RESET}"
         echo -e "${COLOR_PURPLE}1. Test with: ./rt.sh --rootless validate-system${COLOR_RESET}"
-        echo -e "${COLOR_PURPLE}2. Create container: ./rt.sh --rootless create-container test${COLOR_RESET}"
-        echo -e "${COLOR_PURPLE}3. Run container: ./rt.sh --rootless run-container test${COLOR_RESET}"
+        echo -e "${COLOR_PURPLE}2. Create container: ./rt.sh --rootless create test${COLOR_RESET}"
+        echo -e "${COLOR_PURPLE}3. Run container: ./rt.sh --rootless run test${COLOR_RESET}"
     else
         echo -e "\n${COLOR_RED}❌ Setup failed. Please check the errors above${COLOR_RESET}"
         exit 1

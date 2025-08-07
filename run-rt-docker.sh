@@ -40,13 +40,13 @@ show_help() {
     
     echo -e "${COLOR_CYAN}🔧 INSIDE CONTAINER:${COLOR_RESET}"
     echo -e "${COLOR_CYAN}# Create container (privileged mode)${COLOR_RESET}"
-    echo -e "${COLOR_CYAN}./rt.sh create-container webapp${COLOR_RESET}\n"
+    echo -e "${COLOR_CYAN}./rt.sh create webapp${COLOR_RESET}\n"
     
     echo -e "${COLOR_CYAN}# Create container (rootless mode)${COLOR_RESET}"
-    echo -e "${COLOR_CYAN}./rt.sh --rootless create-container webapp${COLOR_RESET}\n"
+    echo -e "${COLOR_CYAN}./rt.sh --rootless create webapp${COLOR_RESET}\n"
     
     echo -e "${COLOR_CYAN}# List containers${COLOR_RESET}"
-    echo -e "${COLOR_CYAN}./rt.sh list-containers${COLOR_RESET}\n"
+    echo -e "${COLOR_CYAN}./rt.sh list${COLOR_RESET}\n"
     
     echo -e "${COLOR_PURPLE}🏘️  Seperti RT yang menyediakan berbagai cara untuk mengelola kompleks!${COLOR_RESET}\n"
 }

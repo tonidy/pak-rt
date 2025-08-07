@@ -41,13 +41,13 @@ show_usage() {
     echo
     echo -e "${COLOR_YELLOW}EXAMPLES:${COLOR_RESET}"
     echo -e "  ${COLOR_GREEN}# Create container with sudo${COLOR_RESET}"
-    echo -e "  $0 --sudo create-container webapp --ram=512 --cpu=50"
+    echo -e "  $0 --sudo create webapp --ram=512 --cpu=50"
     echo
     echo -e "  ${COLOR_GREEN}# Create container without sudo (rootless)${COLOR_RESET}"
-    echo -e "  $0 --rootless create-container webapp --ram=512 --cpu=50"
+    echo -e "  $0 --rootless create webapp --ram=512 --cpu=50"
     echo
     echo -e "  ${COLOR_GREEN}# Auto-detect mode${COLOR_RESET}"
-    echo -e "  $0 --auto create-container webapp --ram=512 --cpu=50"
+    echo -e "  $0 --auto create webapp --ram=512 --cpu=50"
     echo
     echo -e "  ${COLOR_GREEN}# Show help${COLOR_RESET}"
     echo -e "  $0 help"

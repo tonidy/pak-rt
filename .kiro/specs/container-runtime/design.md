@@ -78,10 +78,10 @@ rt.sh
 **Interface**:
 ```bash
 # Command format (RT = Rukun Tetangga)
-./rt.sh create-container <name> --ram=<MB> --cpu=<percentage>
-./rt.sh list-containers
-./rt.sh run-container <name> [command]
-./rt.sh delete-container <name>
+./rt.sh create <name> --ram=<MB> --cpu=<percentage>
+./rt.sh list
+./rt.sh run <name> [command]
+./rt.sh delete <name>
 ./rt.sh cleanup-all
 ```
 
@@ -103,7 +103,7 @@ rt.sh
 
 ### 3. Network Manager
 
-**Purpose**: Mengelola network isolation dan container-to-container communication
+**Purpose**: Mengelola network isolation dan container-to communication
 
 **Functions**:
 - `create_network_namespace()`: Create isolated network stack
@@ -262,7 +262,7 @@ create_namespace() {
    - Verify resource limits
 
 2. **Network Testing**:
-   - Container-to-container communication
+   - Container-to communication
    - Network isolation dari host
    - Network cleanup
 

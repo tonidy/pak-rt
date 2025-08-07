@@ -85,7 +85,7 @@ validate_component "Container Lifecycle" \
 echo -e "\n${BLUE}💻 PHASE 3: CLI INTERFACE VALIDATION${NC}"
 
 validate_component "Command Parser" \
-    "grep -A2 'create-container' ./rt.sh | grep -q 'shift'" \
+    "grep -A2 'create' ./rt.sh | grep -q 'shift'" \
     "Memastikan CLI parser tersedia"
 
 validate_component "Help System" \

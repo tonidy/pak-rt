@@ -9,9 +9,9 @@
 ### Mode Normal (Perlu Sudo)
 ```bash
 # Perlu sudo untuk semua operasi
-sudo ./rt.sh create-container rumah-a
-sudo ./rt.sh run-container rumah-a
-sudo ./rt.sh list-containers
+sudo ./rt.sh create rumah-a
+sudo ./rt.sh run rumah-a
+sudo ./rt.sh list
 ```
 
 **Mengapa perlu sudo?**
@@ -23,14 +23,14 @@ sudo ./rt.sh list-containers
 ### Mode Rootless (Tanpa Sudo)
 ```bash
 # Tidak perlu sudo
-./rt.sh --rootless create-container rumah-a
-./rt.sh --rootless run-container rumah-a
-./rt.sh --rootless list-containers
+./rt.sh --rootless create rumah-a
+./rt.sh --rootless run rumah-a
+./rt.sh --rootless list
 ```
 
 **Bagaimana bisa tanpa sudo?**
 - Menggunakan User Namespaces
-- Container disimpan di `~/.local/share/rt-containers`
+- Container disimpan di `~/.local/share/rt`
 - Resource limits mungkin terbatas
 - Isolasi tetap aman melalui namespaces
 
@@ -83,28 +83,28 @@ echo "$(whoami):100000:65536" | sudo tee -a /etc/subgid
 ### 2. Operasi Container Dasar
 ```bash
 # Buat container
-./rt.sh --rootless create-container webapp
+./rt.sh --rootless create webapp
 
 # Jalankan container
-./rt.sh --rootless run-container webapp
+./rt.sh --rootless run webapp
 
 # List semua container
-./rt.sh --rootless list-containers
+./rt.sh --rootless list
 
 # Hapus container
-./rt.sh --rootless delete-container webapp
+./rt.sh --rootless delete webapp
 ```
 
 ### 3. Dengan Opsi Tambahan
 ```bash
 # Mode verbose
-./rt.sh --rootless --verbose create-container webapp
+./rt.sh --rootless --verbose create webapp
 
 # Mode debug
-./rt.sh --rootless --debug create-container webapp
+./rt.sh --rootless --debug create webapp
 
 # Kombinasi opsi
-./rt.sh --rootless --verbose --debug create-container webapp
+./rt.sh --rootless --verbose --debug create webapp
 ```
 
 ## Keterbatasan Mode Rootless
@@ -162,8 +162,8 @@ echo "$(whoami):100000:65536" | sudo tee -a /etc/subgid
 ./rt.sh --rootless debug network
 
 # Restart container jika perlu
-./rt.sh --rootless delete-container nama-container
-./rt.sh --rootless create-container nama-container
+./rt.sh --rootless delete nama-container
+./rt.sh --rootless create nama-container
 ```
 
 ## Perbandingan dengan Docker Rootless
@@ -171,7 +171,7 @@ echo "$(whoami):100000:65536" | sudo tee -a /etc/subgid
 | Fitur | RT Rootless | Docker Rootless |
 |-------|-------------|-----------------|
 | Setup | Manual flag `--rootless` | Perlu instalasi khusus |
-| Storage | `~/.local/share/rt-containers` | `~/.local/share/docker` |
+| Storage | `~/.local/share/rt` | `~/.local/share/docker` |
 | Resource Limits | Terbatas | Terbatas |
 | Network | User namespaces | User namespaces |
 | Kompatibilitas | Linux dengan user namespaces | Linux dengan user namespaces |
@@ -183,14 +183,14 @@ echo "$(whoami):100000:65536" | sudo tee -a /etc/subgid
 ./demo-rootless.sh
 
 # 2. Buat dan jalankan container
-./rt.sh --rootless create-container myapp
-./rt.sh --rootless run-container myapp
+./rt.sh --rootless create myapp
+./rt.sh --rootless run myapp
 
 # 3. Monitor (jika didukung)
 ./rt.sh --rootless monitor myapp 30
 
 # 4. Cleanup
-./rt.sh --rootless delete-container myapp
+./rt.sh --rootless delete myapp
 ```
 
 ## Analogi RT

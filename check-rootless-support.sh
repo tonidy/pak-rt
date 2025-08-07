@@ -160,7 +160,7 @@ fi
 
 if [[ $issues -eq 0 ]]; then
     echo -e "${COLOR_GREEN}🎉 Your system is ready for rootless containers!${COLOR_RESET}"
-    echo -e "${COLOR_GREEN}   You can run: ./rt.sh --rootless create-container test${COLOR_RESET}"
+    echo -e "${COLOR_GREEN}   You can run: ./rt.sh --rootless create test${COLOR_RESET}"
 else
     echo -e "${COLOR_RED}❌ Found $issues issue(s) that need to be fixed${COLOR_RESET}"
     echo -e "${COLOR_YELLOW}💡 Run ./setup-rootless.sh to automatically fix these issues${COLOR_RESET}"

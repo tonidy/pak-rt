@@ -37,34 +37,34 @@ make setup
 make dev
 
 # Dalam development container, test basic functionality
-./rt.sh create-container rumah-a --ram=512 --cpu=50
-./rt.sh list-containers
-./rt.sh run-container rumah-a
-./rt.sh delete-container rumah-a
+./rt.sh create rumah-a --ram=512 --cpu=50
+./rt.sh list
+./rt.sh run rumah-a
+./rt.sh delete rumah-a
 ```
 
 ### Basic Usage Examples
 
 ```bash
 # Create container dengan resource limits
-./rt.sh create-container rumah-jakarta --ram=256 --cpu=25
+./rt.sh create rumah-jakarta --ram=256 --cpu=25
 
 # List semua containers dengan status
-./rt.sh list-containers
+./rt.sh list
 
 # Run container dengan interactive shell
-./rt.sh run-container rumah-jakarta
+./rt.sh run rumah-jakarta
 
 # Create multiple containers untuk networking test
-./rt.sh create-container rumah-bandung --ram=512 --cpu=50
-./rt.sh create-container rumah-surabaya --ram=256 --cpu=30
+./rt.sh create rumah-bandung --ram=512 --cpu=50
+./rt.sh create rumah-surabaya --ram=256 --cpu=30
 
-# Test container-to-container communication
-./rt.sh run-container rumah-bandung
+# Test container-to communication
+./rt.sh run rumah-bandung
 # Dalam container: ping 10.0.0.3 (IP rumah-surabaya)
 
 # Cleanup containers
-./rt.sh delete-container rumah-jakarta
+./rt.sh delete rumah-jakarta
 ./rt.sh cleanup-all  # Delete semua containers
 ```
 
@@ -90,7 +90,7 @@ make dev
 | `make demo-namespace` | Namespace isolation demo | Demo isolasi antar rumah |
 | `make demo-resources` | Resource management demo | Demo pembagian listrik |
 | `make demo-network` | Container networking demo | Demo telepon antar rumah |
-| `make demo-multi` | Multi-container application demo | Demo kompleks lengkap |
+| `make demo-multi` | Multi application demo | Demo kompleks lengkap |
 | `make demo-tour` | Complete educational tour | Tur lengkap kompleks |
 | `make demo-all` | Run all demo scenarios | Jalankan semua demo |
 
@@ -205,7 +205,7 @@ make demo-all
    - Seperti RT yang menunjukkan pembagian listrik
 
 4. **Container Networking** (`make demo-network`)
-   - Container-to-container communication
+   - Container-to communication
    - Seperti RT yang menunjukkan sistem telepon
 
 5. **Multi-Container** (`make demo-multi`)
@@ -221,8 +221,8 @@ make demo-all
 ### 1. Learning Container Technology
 ```bash
 # Understand namespace isolation
-./rt.sh create-container belajar-namespace --ram=128 --cpu=25
-./rt.sh run-container belajar-namespace
+./rt.sh create belajar-namespace --ram=128 --cpu=25
+./rt.sh run belajar-namespace
 # Dalam container: ps aux  # Lihat PID isolation
 # Dalam container: mount   # Lihat filesystem isolation
 ```
@@ -230,25 +230,25 @@ make demo-all
 ### 2. Network Learning
 ```bash
 # Create multiple containers untuk network testing
-./rt.sh create-container server --ram=256 --cpu=30
-./rt.sh create-container client --ram=128 --cpu=20
+./rt.sh create server --ram=256 --cpu=30
+./rt.sh create client --ram=128 --cpu=20
 
 # Test direct container communication
-./rt.sh run-container server
+./rt.sh run server
 # Dalam server: nc -l -p 8080  # Start simple server
 
 # Dari container lain
-./rt.sh run-container client
+./rt.sh run client
 # Dalam client: nc 10.0.0.2 8080  # Connect ke server
 ```
 
 ### 3. Resource Management Learning
 ```bash
 # Create container dengan memory limit
-./rt.sh create-container memory-test --ram=64 --cpu=10
+./rt.sh create memory-test --ram=64 --cpu=10
 
 # Monitor resource usage
-./rt.sh run-container memory-test
+./rt.sh run memory-test
 # Dalam container: stress --vm 1 --vm-bytes 100M  # Test memory limit
 ```
 
@@ -259,28 +259,28 @@ make demo-all
 ```bash
 # Enable verbose educational output
 export VERBOSE_MODE=true
-./rt.sh create-container verbose-demo --ram=256 --cpu=25
+./rt.sh create verbose-demo --ram=256 --cpu=25
 
 # Enable debug mode untuk detailed system information
 export DEBUG_MODE=true
-./rt.sh list-containers
+./rt.sh list
 
 # Enable resource monitoring
 export MONITORING_ENABLED=true
-./rt.sh run-container monitoring-demo
+./rt.sh run monitoring-demo
 ```
 
 ### Custom Resource Limits
 
 ```bash
 # High-performance container
-./rt.sh create-container high-perf --ram=1024 --cpu=80
+./rt.sh create high-perf --ram=1024 --cpu=80
 
 # Minimal resource container
-./rt.sh create-container minimal --ram=64 --cpu=5
+./rt.sh create minimal --ram=64 --cpu=5
 
 # Balanced container
-./rt.sh create-container balanced --ram=512 --cpu=50
+./rt.sh create balanced --ram=512 --cpu=50
 ```
 
 ## 🧪 Testing and Validation
@@ -305,18 +305,18 @@ make test-stress
 
 ```bash
 # Scenario 1: Basic container lifecycle
-./rt.sh create-container test1 --ram=256 --cpu=25
-./rt.sh list-containers
-./rt.sh run-container test1
-./rt.sh delete-container test1
+./rt.sh create test1 --ram=256 --cpu=25
+./rt.sh list
+./rt.sh run test1
+./rt.sh delete test1
 
-# Scenario 2: Multi-container networking
-./rt.sh create-container web --ram=512 --cpu=50
-./rt.sh create-container db --ram=256 --cpu=30
+# Scenario 2: Multi networking
+./rt.sh create web --ram=512 --cpu=50
+./rt.sh create db --ram=256 --cpu=30
 # Test ping between containers
 
 # Scenario 3: Resource limiting
-./rt.sh create-container limited --ram=128 --cpu=10
+./rt.sh create limited --ram=128 --cpu=10
 # Monitor resource usage dalam container
 ```
 
