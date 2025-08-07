@@ -8207,36 +8207,23 @@ exec_container_command() {
         local container_rootfs="$CONTAINERS_DIR/$container_name/rootfs"
         local cgroup_path="/sys/fs/cgroup/container-$container_name"
 
-        # Use cgexec-like approach: start process directly in cgroup
+        # Use manual cgroup assignment (more reliable than systemd-run for our use case)
         if [[ "$MACOS_MODE" != "true" && -d "$cgroup_path" ]]; then
-            # Method 1: Use systemd-run if available (most reliable)
-            if command -v systemd-run >/dev/null 2>&1; then
-                exec systemd-run --scope --slice=container-$container_name.slice \
-                    nsenter -t "$container_pid" -p -m -u -i -n chroot "$container_rootfs" /bin/busybox sh -c "
-                        export PATH=/bin:/sbin:/usr/bin:/usr/sbin
-                        export HOME=/root
-                        export USER=root
-                        export SHELL=/bin/sh
-                        cd /
-                        exec $exec_command
-                    "
-            else
-                # Method 2: Manual cgroup assignment with process tracking
-                (
-                    # Move current shell to container cgroup
-                    echo $$ > "$cgroup_path/cgroup.procs" 2>/dev/null || true
+            # Method: Manual cgroup assignment with process tracking
+            (
+                # Move current shell to container cgroup
+                echo $$ > "$cgroup_path/cgroup.procs" 2>/dev/null || true
 
-                    # Execute in container namespace
-                    exec nsenter -t "$container_pid" -p -m -u -i -n chroot "$container_rootfs" /bin/busybox sh -c "
-                        export PATH=/bin:/sbin:/usr/bin:/usr/sbin
-                        export HOME=/root
-                        export USER=root
-                        export SHELL=/bin/sh
-                        cd /
-                        exec $exec_command
-                    "
-                )
-            fi
+                # Execute in container namespace
+                exec nsenter -t "$container_pid" -p -m -u -i -n chroot "$container_rootfs" /bin/busybox sh -c "
+                    export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+                    export HOME=/root
+                    export USER=root
+                    export SHELL=/bin/sh
+                    cd /
+                    exec $exec_command
+                "
+            )
         else
             # Fallback for macOS or when cgroup not available
             exec nsenter -t "$container_pid" -p -m -u -i -n chroot "$container_rootfs" /bin/busybox sh -c "
