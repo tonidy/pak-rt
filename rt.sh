@@ -5638,8 +5638,9 @@ set_cpu_limit() {
             log_info "CPU limit verified: ${actual_percent}%" \
                      "Pembagian waktu kerja terpasang: ${actual_percent}%"
         else
-        log_warn "Could not verify CPU limit" \
-                 "Tidak bisa memverifikasi pembagian waktu kerja"
+            log_warn "Could not verify CPU limit" \
+                     "Tidak bisa memverifikasi pembagian waktu kerja"
+        fi
     fi
     
     log_success "CPU limit set successfully: ${cpu_percent}%" \
