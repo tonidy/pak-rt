@@ -24,9 +24,17 @@ readonly DETECTED_OS
 detect_cgroup_version() {
     if [[ "$DETECTED_OS" == "Darwin" ]]; then
         echo "none"
+    elif [[ -f "/sys/fs/cgroup/cgroup.controllers" ]]; then
+        # cgroup v2 unified hierarchy
+        echo "v2"
     elif mount | grep -q "cgroup2.*cgroup2"; then
+        # cgroup v2 mounted
         echo "v2"
     elif [[ -d "/sys/fs/cgroup/memory" ]] && [[ -f "/sys/fs/cgroup/memory/memory.limit_in_bytes" ]]; then
+        # cgroup v1 with memory controller
+        echo "v1"
+    elif [[ -d "/sys/fs/cgroup" ]] && ls /sys/fs/cgroup/ | grep -q "memory\|cpu"; then
+        # cgroup v1 with some controllers
         echo "v1"
     else
         echo "unknown"
@@ -1799,7 +1807,7 @@ validate_memory_limit() {
     fi
     
     if [[ $memory_mb -lt 8 ]]; then
-        log_error "Memory limit too low (minimum 64MB)" "Seperti alokasi listrik rumah minimal harus cukup untuk kebutuhan dasar"
+        log_error "Memory limit too low (minimum 8MB)" "Seperti alokasi listrik rumah minimal harus cukup untuk kebutuhan dasar"
         return 1
     fi
     
@@ -2910,12 +2918,24 @@ monitor_container_resources() {
         local cpu_percent="N/A"
         local status="Unknown"
         
-        # Get memory usage
+        # Get memory usage - support both cgroup v1 and v2
         if [[ -f "$memory_cgroup/memory.usage_in_bytes" ]] && [[ -f "$memory_cgroup/memory.limit_in_bytes" ]]; then
+            # cgroup v1
             local memory_bytes=$(cat "$memory_cgroup/memory.usage_in_bytes" 2>/dev/null || echo "0")
             local memory_limit=$(cat "$memory_cgroup/memory.limit_in_bytes" 2>/dev/null || echo "1")
             memory_usage=$((memory_bytes / 1024 / 1024))
-            memory_percent=$(( (memory_bytes * 100) / memory_limit ))
+            if [[ $memory_limit -gt 0 && $memory_limit -lt 9223372036854775807 ]]; then
+                memory_percent=$(( (memory_bytes * 100) / memory_limit ))
+            fi
+        elif [[ -f "$memory_cgroup/memory.current" ]]; then
+            # cgroup v2
+            local memory_bytes=$(cat "$memory_cgroup/memory.current" 2>/dev/null || echo "0")
+            local memory_limit_str=$(cat "$memory_cgroup/memory.max" 2>/dev/null || echo "max")
+            memory_usage=$((memory_bytes / 1024 / 1024))
+            if [[ "$memory_limit_str" != "max" ]]; then
+                local memory_limit=$memory_limit_str
+                memory_percent=$(( (memory_bytes * 100) / memory_limit ))
+            fi
         fi
         
         # Get CPU usage (simplified)
@@ -3779,28 +3799,59 @@ get_busybox_info() {
 # =============================================================================
 
 # Global namespace tracking for cleanup
-# Using associative arrays for proper container tracking
-declare -A ACTIVE_NAMESPACES
+# Using simple variables for macOS compatibility (no associative arrays)
+ACTIVE_NAMESPACES_DATA=""
 
-# Helper functions for associative array management
+# Helper functions for namespace management using simple string format
 set_container_namespace() {
     local container_name=$1
     local namespaces=$2
-    ACTIVE_NAMESPACES["$container_name"]="$namespaces"
+
+    # Remove existing entry if present
+    unset_container_namespace "$container_name"
+
+    # Add new entry
+    if [[ -n "$ACTIVE_NAMESPACES_DATA" ]]; then
+        ACTIVE_NAMESPACES_DATA="$ACTIVE_NAMESPACES_DATA|$container_name:$namespaces"
+    else
+        ACTIVE_NAMESPACES_DATA="$container_name:$namespaces"
+    fi
 }
 
 get_container_namespace() {
     local container_name=$1
-    if [[ -n "${ACTIVE_NAMESPACES[$container_name]:-}" ]]; then
-        echo "${ACTIVE_NAMESPACES[$container_name]}"
-        return 0
+
+    if [[ -n "$ACTIVE_NAMESPACES_DATA" ]]; then
+        local result=$(echo "$ACTIVE_NAMESPACES_DATA" | grep -o "$container_name:[^|]*" | cut -d: -f2- || echo "")
+        if [[ -n "$result" ]]; then
+            echo "$result"
+            return 0
+        fi
     fi
     return 1
 }
 
 unset_container_namespace() {
     local container_name=$1
-    unset ACTIVE_NAMESPACES["$container_name"]
+
+    if [[ -n "$ACTIVE_NAMESPACES_DATA" ]]; then
+        # Remove the entry for this container
+        local new_data=""
+        local IFS='|'
+        local entries=($ACTIVE_NAMESPACES_DATA)
+
+        for entry in "${entries[@]}"; do
+            if [[ "$entry" != "$container_name:"* ]]; then
+                if [[ -n "$new_data" ]]; then
+                    new_data="$new_data|$entry"
+                else
+                    new_data="$entry"
+                fi
+            fi
+        done
+
+        ACTIVE_NAMESPACES_DATA="$new_data"
+    fi
 }
 
 # Create PID namespace with "Ayah nomor 1 di rumah" analogy
@@ -4063,45 +4114,88 @@ setup_container_namespaces() {
 # =============================================================================
 
 # Global network tracking for cleanup
-# Using associative arrays for proper container tracking
-declare -A ACTIVE_NETWORKS
-declare -A CONTAINER_IPS
+# Using simple variables for macOS compatibility (no associative arrays)
+ACTIVE_NETWORKS_DATA=""
+CONTAINER_IPS_DATA=""
 NEXT_IP_OCTET=2
 
-# Helper functions for network associative array management
+# Helper functions for network management using simple string format
 set_container_network() {
     local container_name=$1
     local network_info=$2
-    ACTIVE_NETWORKS["$container_name"]="$network_info"
+
+    # Remove existing entry if present
+    unset_container_network "$container_name"
+
+    # Add new entry
+    if [[ -n "$ACTIVE_NETWORKS_DATA" ]]; then
+        ACTIVE_NETWORKS_DATA="$ACTIVE_NETWORKS_DATA|$container_name:$network_info"
+    else
+        ACTIVE_NETWORKS_DATA="$container_name:$network_info"
+    fi
 }
 
 get_container_network() {
     local container_name=$1
-    if [[ -n "${ACTIVE_NETWORKS[$container_name]:-}" ]]; then
-        echo "${ACTIVE_NETWORKS[$container_name]}"
-        return 0
+
+    if [[ -n "$ACTIVE_NETWORKS_DATA" ]]; then
+        local result=$(echo "$ACTIVE_NETWORKS_DATA" | grep -o "$container_name:[^|]*" | cut -d: -f2- || echo "")
+        if [[ -n "$result" ]]; then
+            echo "$result"
+            return 0
+        fi
     fi
     return 1
 }
 
 unset_container_network() {
     local container_name=$1
-    unset ACTIVE_NETWORKS["$container_name"]
+
+    if [[ -n "$ACTIVE_NETWORKS_DATA" ]]; then
+        # Remove the entry for this container
+        local new_data=""
+        local IFS='|'
+        local entries=($ACTIVE_NETWORKS_DATA)
+
+        for entry in "${entries[@]}"; do
+            if [[ "$entry" != "$container_name:"* ]]; then
+                if [[ -n "$new_data" ]]; then
+                    new_data="$new_data|$entry"
+                else
+                    new_data="$entry"
+                fi
+            fi
+        done
+
+        ACTIVE_NETWORKS_DATA="$new_data"
+    fi
 }
 
 set_container_ip() {
     local container_name=$1
     local ip=$2
-    CONTAINER_IPS["$container_name"]="$ip"
+
+    # Remove existing entry if present
+    unset_container_ip "$container_name"
+
+    # Add new entry
+    if [[ -n "$CONTAINER_IPS_DATA" ]]; then
+        CONTAINER_IPS_DATA="$CONTAINER_IPS_DATA|$container_name:$ip"
+    else
+        CONTAINER_IPS_DATA="$container_name:$ip"
+    fi
 }
 
 get_container_ip() {
     local container_name=$1
 
-    # First check in-memory array
-    if [[ -n "${CONTAINER_IPS[$container_name]:-}" ]]; then
-        echo "${CONTAINER_IPS[$container_name]}"
-        return 0
+    # First check in-memory data
+    if [[ -n "$CONTAINER_IPS_DATA" ]]; then
+        local result=$(echo "$CONTAINER_IPS_DATA" | grep -o "$container_name:[^|]*" | cut -d: -f2- || echo "")
+        if [[ -n "$result" ]]; then
+            echo "$result"
+            return 0
+        fi
     fi
 
     # If not in memory, try to read from config file
@@ -4110,7 +4204,7 @@ get_container_ip() {
         local ip_address=$(grep -o '"ip_address":[[:space:]]*"[^"]*"' "$config_file" 2>/dev/null | cut -d'"' -f4)
         if [[ -n "$ip_address" && "$ip_address" != "N/A" ]]; then
             # Cache it in memory for future use
-            CONTAINER_IPS["$container_name"]="$ip_address"
+            set_container_ip "$container_name" "$ip_address"
             echo "$ip_address"
             return 0
         fi
@@ -4141,7 +4235,25 @@ get_container_status() {
 
 unset_container_ip() {
     local container_name=$1
-    unset CONTAINER_IPS["$container_name"]
+
+    if [[ -n "$CONTAINER_IPS_DATA" ]]; then
+        # Remove the entry for this container
+        local new_data=""
+        local IFS='|'
+        local entries=($CONTAINER_IPS_DATA)
+
+        for entry in "${entries[@]}"; do
+            if [[ "$entry" != "$container_name:"* ]]; then
+                if [[ -n "$new_data" ]]; then
+                    new_data="$new_data|$entry"
+                else
+                    new_data="$entry"
+                fi
+            fi
+        done
+
+        CONTAINER_IPS_DATA="$new_data"
+    fi
 }
 
 is_ip_in_use() {
@@ -5631,20 +5743,32 @@ debug_container_network() {
     
     # Check connectivity to other containers
     echo "5. Connectivity Check:"
-    if [[ ${#CONTAINER_IPS[@]} -gt 1 ]]; then
-        for other_container in "${!CONTAINER_IPS[@]}"; do
-            if [[ "$other_container" != "$container_name" ]]; then
-                local other_ip=$(get_container_ip "$other_container" 2>/dev/null || echo "")
-                echo "   Testing connectivity to $other_container ($other_ip):"
-                if ip netns exec "$ns_name" ping -c 1 -W 1 "$other_ip" >/dev/null 2>&1; then
-                    echo "   ✅ Can reach $other_container"
-                else
-                    echo "   ❌ Cannot reach $other_container"
-                    echo "   💡 Check if $other_container network is properly configured"
+    # Get list of other containers from the containers directory
+    local other_containers_found=false
+    if [[ -d "$CONTAINERS_DIR" ]]; then
+        for container_dir in "$CONTAINERS_DIR"/*; do
+            if [[ -d "$container_dir" && "$(basename "$container_dir")" != "busybox" ]]; then
+                local other_container=$(basename "$container_dir")
+                if [[ "$other_container" != "$container_name" ]]; then
+                    other_containers_found=true
+                    local other_ip=$(get_container_ip "$other_container" 2>/dev/null || echo "")
+                    if [[ -n "$other_ip" ]]; then
+                        echo "   Testing connectivity to $other_container ($other_ip):"
+                        if ip netns exec "$ns_name" ping -c 1 -W 1 "$other_ip" >/dev/null 2>&1; then
+                            echo "   ✅ Can reach $other_container"
+                        else
+                            echo "   ❌ Cannot reach $other_container"
+                            echo "   💡 Check if $other_container network is properly configured"
+                        fi
+                    else
+                        echo "   ⚠️  $other_container has no IP address configured"
+                    fi
                 fi
             fi
         done
-    else
+    fi
+
+    if [[ "$other_containers_found" == "false" ]]; then
         echo "   ⚠️  No other containers to test connectivity"
     fi
     
@@ -5656,28 +5780,59 @@ debug_container_network() {
 # =============================================================================
 
 # Global cgroup tracking for cleanup
-# Using associative arrays for proper container tracking
-declare -A ACTIVE_CGROUPS
+# Using simple variables for macOS compatibility (no associative arrays)
+ACTIVE_CGROUPS_DATA=""
 
-# Helper functions for cgroup associative array management
+# Helper functions for cgroup management using simple string format
 set_container_cgroup() {
     local container_name=$1
     local cgroup_info=$2
-    ACTIVE_CGROUPS["$container_name"]="$cgroup_info"
+
+    # Remove existing entry if present
+    unset_container_cgroup "$container_name"
+
+    # Add new entry
+    if [[ -n "$ACTIVE_CGROUPS_DATA" ]]; then
+        ACTIVE_CGROUPS_DATA="$ACTIVE_CGROUPS_DATA|$container_name:$cgroup_info"
+    else
+        ACTIVE_CGROUPS_DATA="$container_name:$cgroup_info"
+    fi
 }
 
 get_container_cgroup() {
     local container_name=$1
-    if [[ -n "${ACTIVE_CGROUPS[$container_name]:-}" ]]; then
-        echo "${ACTIVE_CGROUPS[$container_name]}"
-        return 0
+
+    if [[ -n "$ACTIVE_CGROUPS_DATA" ]]; then
+        local result=$(echo "$ACTIVE_CGROUPS_DATA" | grep -o "$container_name:[^|]*" | cut -d: -f2- || echo "")
+        if [[ -n "$result" ]]; then
+            echo "$result"
+            return 0
+        fi
     fi
     return 1
 }
 
 unset_container_cgroup() {
     local container_name=$1
-    unset ACTIVE_CGROUPS["$container_name"]
+
+    if [[ -n "$ACTIVE_CGROUPS_DATA" ]]; then
+        # Remove the entry for this container
+        local new_data=""
+        local IFS='|'
+        local entries=($ACTIVE_CGROUPS_DATA)
+
+        for entry in "${entries[@]}"; do
+            if [[ "$entry" != "$container_name:"* ]]; then
+                if [[ -n "$new_data" ]]; then
+                    new_data="$new_data|$entry"
+                else
+                    new_data="$entry"
+                fi
+            fi
+        done
+
+        ACTIVE_CGROUPS_DATA="$new_data"
+    fi
 }
 
 # Create cgroup directory structure for memory and CPU control
@@ -6272,20 +6427,36 @@ get_container_resource_usage() {
     echo "🏠 Tagihan Listrik dan Air Rumah: $container_name"
     echo ""
     
-    # Memory usage report
+    # Memory usage report - support both cgroup v1 and v2
     echo "💡 LISTRIK (Memory Usage):"
+    local usage_bytes=0 limit_bytes=0 usage_mb=0 limit_mb=0 usage_percent=0
+
     if [[ -f "$memory_cgroup/memory.usage_in_bytes" ]] && [[ -f "$memory_cgroup/memory.limit_in_bytes" ]]; then
-        local usage_bytes limit_bytes
+        # cgroup v1
         usage_bytes=$(cat "$memory_cgroup/memory.usage_in_bytes" 2>/dev/null || echo "0")
         limit_bytes=$(cat "$memory_cgroup/memory.limit_in_bytes" 2>/dev/null || echo "0")
-        
-        local usage_mb=$((usage_bytes / 1024 / 1024))
-        local limit_mb=$((limit_bytes / 1024 / 1024))
-        local usage_percent=0
-        
-        if [[ $limit_bytes -gt 0 ]]; then
+        usage_mb=$((usage_bytes / 1024 / 1024))
+        limit_mb=$((limit_bytes / 1024 / 1024))
+
+        if [[ $limit_bytes -gt 0 && $limit_bytes -lt 9223372036854775807 ]]; then
             usage_percent=$((usage_bytes * 100 / limit_bytes))
         fi
+    elif [[ -f "$memory_cgroup/memory.current" ]]; then
+        # cgroup v2
+        usage_bytes=$(cat "$memory_cgroup/memory.current" 2>/dev/null || echo "0")
+        local limit_str=$(cat "$memory_cgroup/memory.max" 2>/dev/null || echo "max")
+        usage_mb=$((usage_bytes / 1024 / 1024))
+
+        if [[ "$limit_str" != "max" ]]; then
+            limit_bytes=$limit_str
+            limit_mb=$((limit_bytes / 1024 / 1024))
+            usage_percent=$((usage_bytes * 100 / limit_bytes))
+        else
+            limit_mb="unlimited"
+        fi
+    fi
+
+    if [[ $usage_bytes -gt 0 ]]; then
         
         echo "   📊 Pemakaian: ${usage_mb}MB / ${limit_mb}MB (${usage_percent}%)"
         
@@ -8034,36 +8205,49 @@ exec_container_command() {
 
         # Execute command in container namespaces with proper chroot
         local container_rootfs="$CONTAINERS_DIR/$container_name/rootfs"
+        local cgroup_path="/sys/fs/cgroup/container-$container_name"
 
-        # Start the command in background to get its PID
-        nsenter -t "$container_pid" -p -m -u -i -n chroot "$container_rootfs" /bin/busybox sh -c "
-            export PATH=/bin:/sbin:/usr/bin:/usr/sbin
-            export HOME=/root
-            export USER=root
-            export SHELL=/bin/sh
-            cd /
-            exec $exec_command
-        " &
+        # Use cgexec-like approach: start process directly in cgroup
+        if [[ "$MACOS_MODE" != "true" && -d "$cgroup_path" ]]; then
+            # Method 1: Use systemd-run if available (most reliable)
+            if command -v systemd-run >/dev/null 2>&1; then
+                exec systemd-run --scope --slice=container-$container_name.slice \
+                    nsenter -t "$container_pid" -p -m -u -i -n chroot "$container_rootfs" /bin/busybox sh -c "
+                        export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+                        export HOME=/root
+                        export USER=root
+                        export SHELL=/bin/sh
+                        cd /
+                        exec $exec_command
+                    "
+            else
+                # Method 2: Manual cgroup assignment with process tracking
+                (
+                    # Move current shell to container cgroup
+                    echo $$ > "$cgroup_path/cgroup.procs" 2>/dev/null || true
 
-        local nsenter_pid=$!
-
-        # Give the process a moment to start
-        sleep 0.1
-
-        # Find all child processes of the container and add them to cgroup
-        if [[ "$MACOS_MODE" != "true" ]]; then
-            # Add the nsenter process and its children to cgroup
-            add_process_to_container_cgroups "$container_name" "$nsenter_pid" 2>/dev/null || true
-
-            # Also add any child processes that might have been created
-            local child_pids=$(pgrep -P "$container_pid" 2>/dev/null || true)
-            for child_pid in $child_pids; do
-                add_process_to_container_cgroups "$container_name" "$child_pid" 2>/dev/null || true
-            done
+                    # Execute in container namespace
+                    exec nsenter -t "$container_pid" -p -m -u -i -n chroot "$container_rootfs" /bin/busybox sh -c "
+                        export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+                        export HOME=/root
+                        export USER=root
+                        export SHELL=/bin/sh
+                        cd /
+                        exec $exec_command
+                    "
+                )
+            fi
+        else
+            # Fallback for macOS or when cgroup not available
+            exec nsenter -t "$container_pid" -p -m -u -i -n chroot "$container_rootfs" /bin/busybox sh -c "
+                export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+                export HOME=/root
+                export USER=root
+                export SHELL=/bin/sh
+                cd /
+                exec $exec_command
+            "
         fi
-
-        # Wait for the exec process to complete
-        wait $nsenter_pid
     fi
 }
 
@@ -8114,6 +8298,91 @@ stop_container_process() {
     return 0
 }
 
+# Memory stress test for OOM testing
+test_container_oom() {
+    local container_name=$1
+    local memory_mb=${2:-100}  # Default 100MB allocation
+
+    echo "🧪 Testing OOM for container: $container_name"
+    echo "📊 Memory limit: $(cat /sys/fs/cgroup/container-$container_name/memory.max 2>/dev/null | numfmt --to=iec || echo 'Unknown')"
+    echo "🎯 Allocating: ${memory_mb}MB"
+    echo ""
+
+    # Create a memory stress script that actually allocates memory
+    local stress_script="
+#!/bin/busybox sh
+echo \"Starting memory allocation test...\"
+echo \"Target: ${memory_mb}MB\"
+
+# Method 1: Use busybox to create large variables
+echo \"Method 1: Variable allocation\"
+i=0
+total_mb=0
+while [ \$total_mb -lt $memory_mb ]; do
+    # Allocate 1MB chunks
+    chunk_\$i=\$(dd if=/dev/zero bs=1024 count=1024 2>/dev/null)
+    total_mb=\$((total_mb + 1))
+    echo \"Allocated: \${total_mb}MB\"
+    i=\$((i + 1))
+
+    # Check if we're still alive
+    if [ \$total_mb -ge $memory_mb ]; then
+        echo \"Successfully allocated \${total_mb}MB\"
+        break
+    fi
+
+    # Small delay to see progress
+    sleep 0.1
+done
+
+echo \"Memory allocation test completed\"
+"
+
+    echo "📝 Creating stress test script..."
+
+    # Execute the stress test in container
+    echo "🚀 Starting memory stress test..."
+    echo "⏱️  This may take a while or trigger OOM kill..."
+    echo ""
+
+    # Run the stress test and monitor memory usage
+    (
+        echo "=== Memory Usage Before Test ==="
+        cat /sys/fs/cgroup/container-$container_name/memory.current 2>/dev/null | numfmt --to=iec || echo "0"
+        echo ""
+
+        # Execute stress test
+        echo "$stress_script" | cmd_exec_container "$container_name" "/bin/busybox sh" &
+        local stress_pid=$!
+
+        # Monitor memory usage during test
+        echo "=== Monitoring Memory Usage ==="
+        for i in {1..30}; do
+            if ! kill -0 $stress_pid 2>/dev/null; then
+                echo "Stress test process finished"
+                break
+            fi
+
+            local current_memory=$(cat /sys/fs/cgroup/container-$container_name/memory.current 2>/dev/null || echo "0")
+            local current_mb=$((current_memory / 1024 / 1024))
+            echo "[$i] Current memory usage: ${current_mb}MB"
+
+            sleep 1
+        done
+
+        # Wait for stress test to complete
+        wait $stress_pid 2>/dev/null || echo "Stress test was killed or failed"
+
+        echo ""
+        echo "=== Final Memory Events ==="
+        cat /sys/fs/cgroup/container-$container_name/memory.events 2>/dev/null || echo "No events file"
+
+        echo ""
+        echo "=== Final Memory Usage ==="
+        cat /sys/fs/cgroup/container-$container_name/memory.current 2>/dev/null | numfmt --to=iec || echo "0"
+    )
+}
+
 # Update container status in config file
 update_container_status() {
     local container_name=$1
@@ -8138,19 +8407,37 @@ add_process_to_container_cgroups() {
     # Use cgroup v2 unified hierarchy
     local cgroup_path="/sys/fs/cgroup/container-$container_name"
 
+    # Check if process exists
+    if ! kill -0 "$pid" 2>/dev/null; then
+        log_debug "Process $pid does not exist, skipping cgroup assignment"
+        return 1
+    fi
+
     # Add to unified cgroup
     if [[ -d "$cgroup_path" ]]; then
-        echo "$pid" > "$cgroup_path/cgroup.procs" 2>/dev/null || {
+        # Enable memory controller if not already enabled
+        if [[ -f "$cgroup_path/cgroup.controllers" ]]; then
+            local controllers=$(cat "$cgroup_path/cgroup.controllers" 2>/dev/null || echo "")
+            if [[ "$controllers" != *"memory"* ]]; then
+                echo "+memory" > "$cgroup_path/cgroup.subtree_control" 2>/dev/null || true
+            fi
+        fi
+
+        # Add process to cgroup
+        if echo "$pid" > "$cgroup_path/cgroup.procs" 2>/dev/null; then
+            log_debug "Added PID $pid to cgroup: $container_name"
+
+            # Verify the process was added
+            if grep -q "^$pid$" "$cgroup_path/cgroup.procs" 2>/dev/null; then
+                log_debug "Verified PID $pid is in cgroup: $container_name"
+                return 0
+            else
+                log_debug "Warning: PID $pid not found in cgroup after adding"
+                return 1
+            fi
+        else
             log_debug "Failed to add PID $pid to cgroup: $container_name"
             return 1
-        }
-        log_debug "Added PID $pid to cgroup: $container_name"
-
-        # Verify the process was added
-        if grep -q "^$pid$" "$cgroup_path/cgroup.procs" 2>/dev/null; then
-            log_debug "Verified PID $pid is in cgroup: $container_name"
-        else
-            log_debug "Warning: PID $pid not found in cgroup after adding"
         fi
     else
         log_debug "Cgroup not found: $cgroup_path"
@@ -8290,6 +8577,11 @@ NETWORK COMMANDS (Task 6 Implementation):
     debug-network <container>       Debug network issues
     list-networks                   List all container networks
 
+MEMORY TESTING COMMANDS:
+    test-memory <container> [memory_mb]     Test memory limits and OOM killer
+    stress-memory <container> [target_mb] [duration]  Stress test memory allocation
+    monitor <container> [duration]         Monitor container resource usage
+
 EXAMPLES:
     # Container lifecycle
     $0 create rumah-a --ram=512 --cpu=50
@@ -8316,6 +8608,11 @@ EXAMPLES:
     $0 show-network test-container-1
     $0 test-connectivity test-container-1 test-container-2
 
+    # Memory testing and monitoring
+    $0 test-memory rumah-a 64
+    $0 stress-memory rumah-a 128 30
+    $0 monitor rumah-a 60
+
 ANALOGY:
     RT Container Runtime seperti Rukun Tetangga (RT) yang mengatur kompleks perumahan.
     - create: RT mendaftarkan rumah baru dengan alokasi listrik dan air
@@ -8323,9 +8620,373 @@ ANALOGY:
     - run: RT membuka pintu rumah untuk ditempati warga
     - delete: RT menghapus rumah dan membersihkan semua fasilitasnya
     - cleanup-all: RT membersihkan seluruh kompleks dalam keadaan darurat
+    - test-memory: RT menguji apakah rumah bisa memakai listrik sesuai batas
+    - stress-memory: RT melakukan tes ketahanan sistem listrik rumah
+    - monitor: RT memantau pemakaian listrik dan air rumah secara berkala
 
 For more information, visit: https://github.com/container-learning/rt-runtime
 EOF
+}
+
+# =============================================================================
+# MEMORY TESTING AND OOM FUNCTIONALITY
+# =============================================================================
+
+# Test memory limits and OOM killer functionality
+cmd_test_memory_limits() {
+    local container_name=$1
+    local memory_mb=${2:-"64"}
+
+    log_info "Testing memory limits for container: $container_name" \
+             "Seperti RT menguji batas pemakaian listrik rumah: $container_name"
+
+    # Validate container exists
+    if [[ ! -d "$CONTAINERS_DIR/$container_name" ]]; then
+        log_error "Container '$container_name' not found" \
+                  "Rumah '$container_name' tidak ditemukan"
+        return 1
+    fi
+
+    # Check if container is running
+    if ! container_is_running "$container_name"; then
+        log_error "Container '$container_name' is not running" \
+                  "Rumah '$container_name' sedang tidak aktif"
+        return 1
+    fi
+
+    echo -e "\n${COLOR_BLUE}🧪 MEMORY LIMIT TEST${COLOR_RESET}"
+    echo -e "${COLOR_BLUE}===================${COLOR_RESET}"
+    echo -e "Container: $container_name"
+    echo -e "Target Memory: ${memory_mb}MB"
+    echo -e "Test Type: Progressive memory allocation"
+    echo ""
+
+    # Get current memory limit
+    local memory_cgroup
+    if [[ "$CGROUP_V2_MODE" == "true" ]]; then
+        memory_cgroup="/sys/fs/cgroup/container-$container_name"
+    else
+        memory_cgroup="$CGROUP_ROOT/memory/container-$container_name"
+    fi
+
+    local current_limit="Unknown"
+    if [[ -f "$memory_cgroup/memory.limit_in_bytes" ]]; then
+        local limit_bytes=$(cat "$memory_cgroup/memory.limit_in_bytes" 2>/dev/null || echo "0")
+        current_limit=$((limit_bytes / 1024 / 1024))
+    elif [[ -f "$memory_cgroup/memory.max" ]]; then
+        local limit_bytes=$(cat "$memory_cgroup/memory.max" 2>/dev/null || echo "0")
+        if [[ "$limit_bytes" != "max" ]]; then
+            current_limit=$((limit_bytes / 1024 / 1024))
+        fi
+    fi
+
+    echo -e "Current Memory Limit: ${current_limit}MB"
+    echo ""
+
+    # Create memory allocation script that actually uses memory
+    local test_script="/tmp/memory_test_$$"
+    cat > "$test_script" << 'EOF'
+#!/bin/sh
+echo "🔬 Starting memory allocation test..."
+echo "Target: $1 MB"
+
+# Function to allocate and use memory
+allocate_memory() {
+    local target_mb=$1
+    local chunk_mb=4
+    local allocated=0
+    local temp_files=""
+
+    echo "📈 Allocating memory in ${chunk_mb}MB chunks..."
+
+    while [ $allocated -lt $target_mb ]; do
+        local remaining=$((target_mb - allocated))
+        local this_chunk=$chunk_mb
+        if [ $remaining -lt $chunk_mb ]; then
+            this_chunk=$remaining
+        fi
+
+        echo "  Allocating ${this_chunk}MB... (Total: $((allocated + this_chunk))MB)"
+
+        # Create a temporary file and fill it with data, then load into memory
+        local temp_file="/tmp/memtest_${allocated}_$$"
+        temp_files="$temp_files $temp_file"
+
+        # Generate data and keep it in memory using multiple methods
+        dd if=/dev/zero bs=1M count=$this_chunk 2>/dev/null | \
+        tee "$temp_file" | \
+        head -c $((this_chunk * 1024 * 1024)) > /dev/null &
+
+        # Also use yes command to consume memory
+        yes "$(printf '%*s' $((this_chunk * 1024)) '')" | \
+        head -c $((this_chunk * 1024 * 1024)) > /dev/null &
+
+        allocated=$((allocated + this_chunk))
+
+        # Check if we're still alive
+        if ! kill -0 $$ 2>/dev/null; then
+            echo "💀 Process was OOM killed!"
+            exit 137
+        fi
+
+        sleep 1
+
+        # Show memory info if available
+        if [ -f /proc/self/status ]; then
+            local vm_rss=$(awk '/VmRSS/ {print $2}' /proc/self/status 2>/dev/null || echo "0")
+            local vm_rss_mb=$((vm_rss / 1024))
+            echo "  Process RSS: ${vm_rss_mb}MB"
+        fi
+    done
+
+    echo "✅ Successfully allocated ${target_mb}MB"
+    echo "🔄 Keeping memory allocated for 15 seconds..."
+
+    # Keep the memory allocated by reading the temp files repeatedly
+    for i in $(seq 1 15); do
+        for temp_file in $temp_files; do
+            if [ -f "$temp_file" ]; then
+                cat "$temp_file" > /dev/null &
+            fi
+        done
+        sleep 1
+        echo "  Holding memory... ${i}/15"
+    done
+
+    echo "🧹 Cleaning up..."
+    # Clean up temp files
+    for temp_file in $temp_files; do
+        rm -f "$temp_file" 2>/dev/null || true
+    done
+
+    echo "✅ Memory allocation test completed"
+}
+
+# Run the allocation test
+allocate_memory $1
+EOF
+
+    chmod +x "$test_script"
+
+    # Run the memory test inside the container
+    echo -e "${COLOR_YELLOW}🚀 Starting memory allocation test...${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}💡 Seperti RT menguji apakah rumah bisa memakai listrik sesuai batas${COLOR_RESET}"
+    echo ""
+
+    # Monitor memory usage during test
+    monitor_memory_during_test "$container_name" &
+    local monitor_pid=$!
+
+    # Execute the test
+    local test_result=0
+    if timeout 90 ip netns exec "container-$container_name" "$test_script" "$memory_mb" 2>&1; then
+        echo -e "\n${COLOR_GREEN}✅ Memory test completed successfully${COLOR_RESET}"
+        echo -e "${COLOR_GREEN}📝 Container handled ${memory_mb}MB allocation without OOM${COLOR_RESET}"
+    else
+        local exit_code=$?
+        echo -e "\n${COLOR_RED}💀 Memory test failed (exit code: $exit_code)${COLOR_RESET}"
+        if [[ $exit_code -eq 137 ]]; then
+            echo -e "${COLOR_RED}🚨 OOM Killer was triggered - memory limit enforced!${COLOR_RESET}"
+            echo -e "${COLOR_RED}📝 Seperti RT memutus listrik karena pemakaian melebihi batas${COLOR_RESET}"
+        elif [[ $exit_code -eq 124 ]]; then
+            echo -e "${COLOR_YELLOW}⏰ Test timed out after 90 seconds${COLOR_RESET}"
+        else
+            echo -e "${COLOR_RED}❌ Test failed with unexpected error${COLOR_RESET}"
+        fi
+        test_result=1
+    fi
+
+    # Stop monitoring
+    kill $monitor_pid 2>/dev/null || true
+    wait $monitor_pid 2>/dev/null || true
+
+    # Cleanup
+    rm -f "$test_script"
+
+    echo ""
+    echo -e "${COLOR_BLUE}📊 MEMORY TEST SUMMARY${COLOR_RESET}"
+    echo -e "${COLOR_BLUE}=====================${COLOR_RESET}"
+    get_container_resource_usage "$container_name" 2>/dev/null || echo "Resource usage unavailable"
+
+    return $test_result
+}
+
+# Monitor memory usage during test
+monitor_memory_during_test() {
+    local container_name=$1
+    local memory_cgroup
+
+    if [[ "$CGROUP_V2_MODE" == "true" ]]; then
+        memory_cgroup="/sys/fs/cgroup/container-$container_name"
+    else
+        memory_cgroup="$CGROUP_ROOT/memory/container-$container_name"
+    fi
+
+    echo -e "${COLOR_CYAN}📊 Real-time memory monitoring:${COLOR_RESET}"
+
+    while true; do
+        local usage="N/A"
+        local limit="N/A"
+        local percent="N/A"
+
+        # Get memory usage based on cgroup version
+        if [[ -f "$memory_cgroup/memory.usage_in_bytes" ]]; then
+            local usage_bytes=$(cat "$memory_cgroup/memory.usage_in_bytes" 2>/dev/null || echo "0")
+            local limit_bytes=$(cat "$memory_cgroup/memory.limit_in_bytes" 2>/dev/null || echo "1")
+            usage=$((usage_bytes / 1024 / 1024))
+            limit=$((limit_bytes / 1024 / 1024))
+            if [[ $limit_bytes -gt 0 ]]; then
+                percent=$((usage_bytes * 100 / limit_bytes))
+            fi
+        elif [[ -f "$memory_cgroup/memory.current" ]]; then
+            local usage_bytes=$(cat "$memory_cgroup/memory.current" 2>/dev/null || echo "0")
+            local limit_bytes=$(cat "$memory_cgroup/memory.max" 2>/dev/null || echo "max")
+            usage=$((usage_bytes / 1024 / 1024))
+            if [[ "$limit_bytes" != "max" ]]; then
+                limit=$((limit_bytes / 1024 / 1024))
+                percent=$((usage_bytes * 100 / limit_bytes))
+            fi
+        fi
+
+        echo -e "  $(date +%H:%M:%S) Memory: ${usage}MB / ${limit}MB (${percent}%)"
+        sleep 2
+    done
+}
+
+# Stress test memory with continuous allocation
+cmd_stress_memory() {
+    local container_name=$1
+    local target_mb=${2:-"128"}
+    local duration=${3:-"30"}
+
+    log_info "Starting memory stress test for container: $container_name" \
+             "Seperti RT melakukan tes ketahanan listrik rumah: $container_name"
+
+    # Validate container exists and is running
+    if [[ ! -d "$CONTAINERS_DIR/$container_name" ]]; then
+        log_error "Container '$container_name' not found" \
+                  "Rumah '$container_name' tidak ditemukan"
+        return 1
+    fi
+
+    if ! container_is_running "$container_name"; then
+        log_error "Container '$container_name' is not running" \
+                  "Rumah '$container_name' sedang tidak aktif"
+        return 1
+    fi
+
+    echo -e "\n${COLOR_PURPLE}💪 MEMORY STRESS TEST${COLOR_RESET}"
+    echo -e "${COLOR_PURPLE}====================${COLOR_RESET}"
+    echo -e "Container: $container_name"
+    echo -e "Target Memory: ${target_mb}MB"
+    echo -e "Duration: ${duration}s"
+    echo -e "Test Type: Continuous memory pressure"
+    echo ""
+
+    # Create stress test script
+    local stress_script="/tmp/memory_stress_$$"
+    cat > "$stress_script" << 'EOF'
+#!/bin/sh
+echo "💪 Starting memory stress test..."
+echo "Target: $1 MB for $2 seconds"
+
+stress_memory() {
+    local target_mb=$1
+    local duration=$2
+    local end_time=$(($(date +%s) + duration))
+    local cycle=0
+
+    while [ $(date +%s) -lt $end_time ]; do
+        cycle=$((cycle + 1))
+        echo "🔄 Stress cycle $cycle ($(date +%H:%M:%S))"
+
+        # Multiple memory allocation strategies
+        # Strategy 1: Large sequential allocation
+        dd if=/dev/zero bs=1M count=$((target_mb / 2)) 2>/dev/null | \
+        head -c $((target_mb * 512 * 1024)) > /dev/null &
+        local pid1=$!
+
+        # Strategy 2: Pattern-based allocation
+        yes "$(printf '%*s' 1024 'STRESS')" | \
+        head -c $((target_mb * 256 * 1024)) > /dev/null &
+        local pid2=$!
+
+        # Strategy 3: Random data allocation
+        head -c $((target_mb * 256 * 1024)) /dev/urandom > /dev/null &
+        local pid3=$!
+
+        # Let it run for a bit
+        sleep 3
+
+        # Check if processes are still alive (not OOM killed)
+        local alive_count=0
+        for pid in $pid1 $pid2 $pid3; do
+            if kill -0 $pid 2>/dev/null; then
+                alive_count=$((alive_count + 1))
+                kill $pid 2>/dev/null || true
+            fi
+        done
+
+        echo "  Processes survived: $alive_count/3"
+
+        # Show memory status if available
+        if [ -f /proc/meminfo ]; then
+            local mem_free=$(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo "unknown")
+            echo "  Available memory: ${mem_free}MB"
+        fi
+
+        # Brief pause between cycles
+        sleep 2
+    done
+
+    echo "✅ Memory stress test completed"
+}
+
+stress_memory $1 $2
+EOF
+
+    chmod +x "$stress_script"
+
+    echo -e "${COLOR_YELLOW}🚀 Starting memory stress test...${COLOR_RESET}"
+    echo -e "${COLOR_YELLOW}💡 Seperti RT menguji ketahanan sistem listrik rumah${COLOR_RESET}"
+    echo ""
+
+    # Start monitoring
+    monitor_memory_during_test "$container_name" &
+    local monitor_pid=$!
+
+    # Run stress test
+    local stress_result=0
+    if timeout $((duration + 30)) ip netns exec "container-$container_name" "$stress_script" "$target_mb" "$duration" 2>&1; then
+        echo -e "\n${COLOR_GREEN}✅ Memory stress test completed successfully${COLOR_RESET}"
+        echo -e "${COLOR_GREEN}📝 Container survived ${duration}s of memory pressure${COLOR_RESET}"
+    else
+        local exit_code=$?
+        echo -e "\n${COLOR_RED}💀 Memory stress test failed (exit code: $exit_code)${COLOR_RESET}"
+        if [[ $exit_code -eq 137 ]]; then
+            echo -e "${COLOR_RED}🚨 OOM Killer was triggered during stress test!${COLOR_RESET}"
+            echo -e "${COLOR_RED}📝 Seperti RT memutus listrik karena beban berlebihan${COLOR_RESET}"
+        elif [[ $exit_code -eq 124 ]]; then
+            echo -e "${COLOR_YELLOW}⏰ Stress test timed out${COLOR_RESET}"
+        else
+            echo -e "${COLOR_RED}❌ Stress test failed with unexpected error${COLOR_RESET}"
+        fi
+        stress_result=1
+    fi
+
+    # Stop monitoring
+    kill $monitor_pid 2>/dev/null || true
+    wait $monitor_pid 2>/dev/null || true
+
+    # Cleanup
+    rm -f "$stress_script"
+
+    echo ""
+    echo -e "${COLOR_PURPLE}📊 STRESS TEST SUMMARY${COLOR_RESET}"
+    echo -e "${COLOR_PURPLE}=====================${COLOR_RESET}"
+    get_container_resource_usage "$container_name" 2>/dev/null || echo "Resource usage unavailable"
+
+    return $stress_result
 }
 
 # Main function (to be implemented in later tasks)
@@ -8338,8 +8999,8 @@ main() {
         exit 0
     fi
 
-    # Check OS compatibility first
-    if [[ "$MACOS_MODE" == "true" ]]; then
+    # Check OS compatibility first (but allow help commands to pass through)
+    if [[ "$MACOS_MODE" == "true" && "$command" != "help" && "$command" != "--help" && "$command" != "-h" ]]; then
         check_os_compatibility
         echo ""
         read -p "Continue anyway for educational purposes? (y/N): " -n 1 -r
@@ -8515,6 +9176,27 @@ main() {
             local scope=${2:-"all"}
             local container_name=${3:-""}
             cmd_security_audit "$scope" "$container_name"
+            ;;
+        "test-memory"|"test-oom")
+            local container_name=$2
+            local memory_mb=${3:-"64"}
+            if [[ -z "$container_name" ]]; then
+                log_error "Container name required for memory test"
+                echo "Usage: $0 test-memory <container_name> [memory_mb]"
+                exit 1
+            fi
+            cmd_test_memory_limits "$container_name" "$memory_mb"
+            ;;
+        "stress-memory")
+            local container_name=$2
+            local target_mb=${3:-"128"}
+            local duration=${4:-"30"}
+            if [[ -z "$container_name" ]]; then
+                log_error "Container name required for memory stress test"
+                echo "Usage: $0 stress-memory <container_name> [target_mb] [duration_seconds]"
+                exit 1
+            fi
+            cmd_stress_memory "$container_name" "$target_mb" "$duration"
             ;;
         "install-busybox")
             cmd_install_busybox
