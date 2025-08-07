@@ -7671,6 +7671,17 @@ EOF
         chmod +x "$startup_script"
         log_debug "Startup script created securely: $startup_script" \
                   "Skrip startup dibuat dengan aman"
+
+        # Copy startup script into container rootfs
+        if cp "$startup_script" "$container_rootfs/startup.sh"; then
+            chmod +x "$container_rootfs/startup.sh"
+            log_debug "Startup script copied to container rootfs" \
+                      "Skrip startup disalin ke rootfs container"
+        else
+            log_error "Failed to copy startup script to container rootfs" \
+                      "Gagal menyalin skrip startup ke rootfs container"
+            return 1
+        fi
     else
         log_error "Failed to create startup script" \
                   "Gagal membuat skrip startup"
