@@ -7981,8 +7981,9 @@ exec_container_command() {
         log_info "Entering container namespaces..." \
                  "Memasuki ruang nama container..."
 
-        # Execute command in container namespaces
-        exec nsenter -t "$container_pid" -p -m -u -i -n /bin/busybox sh -c "
+        # Execute command in container namespaces with proper chroot
+        local container_rootfs="$CONTAINERS_DIR/$container_name/rootfs"
+        exec nsenter -t "$container_pid" -p -m -u -i -n chroot "$container_rootfs" /bin/busybox sh -c "
             export PATH=/bin:/sbin:/usr/bin:/usr/sbin
             export HOME=/root
             export USER=root
