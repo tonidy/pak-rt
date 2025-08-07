@@ -5264,6 +5264,81 @@ generate_veth_names() {
     echo "veth-h${name_hash}" "veth-c${name_hash}"
 }
 
+# Setup container bridge for inter-container communication
+setup_container_bridge() {
+    local bridge_name="pak-rt-br0"
+    local bridge_ip="10.0.0.1/24"
+
+    # Check if bridge already exists
+    if ip link show "$bridge_name" >/dev/null 2>&1; then
+        log_debug "Bridge $bridge_name already exists"
+        return 0
+    fi
+
+    log_info "Creating container bridge: $bridge_name" \
+             "Seperti membangun jembatan komunikasi antar rumah"
+
+    # Create bridge
+    if ! ip link add name "$bridge_name" type bridge; then
+        log_error "Failed to create bridge" \
+                  "Gagal membuat jembatan komunikasi"
+        return 1
+    fi
+
+    # Assign IP to bridge
+    if ! ip addr add "$bridge_ip" dev "$bridge_name"; then
+        log_error "Failed to assign IP to bridge" \
+                  "Gagal memberikan IP ke jembatan"
+        ip link delete "$bridge_name" 2>/dev/null
+        return 1
+    fi
+
+    # Bring up bridge
+    if ! ip link set "$bridge_name" up; then
+        log_error "Failed to bring up bridge" \
+                  "Gagal mengaktifkan jembatan"
+        ip link delete "$bridge_name" 2>/dev/null
+        return 1
+    fi
+
+    log_success "Container bridge created successfully" \
+                "Jembatan komunikasi antar rumah berhasil dibangun"
+
+    return 0
+}
+
+# Connect container to bridge
+connect_container_to_bridge() {
+    local container_name=$1
+    local bridge_name="pak-rt-br0"
+
+    # Get veth names
+    local veth_names=($(generate_veth_names "$container_name"))
+    local veth_host="${veth_names[0]}"
+
+    log_info "Connecting container $container_name to bridge" \
+             "Menghubungkan rumah $container_name ke jembatan komunikasi"
+
+    # Connect host veth to bridge
+    if ! ip link set "$veth_host" master "$bridge_name"; then
+        log_error "Failed to connect veth to bridge" \
+                  "Gagal menghubungkan kabel ke jembatan"
+        return 1
+    fi
+
+    # Bring up host veth
+    if ! ip link set "$veth_host" up; then
+        log_error "Failed to bring up host veth" \
+                  "Gagal mengaktifkan kabel host"
+        return 1
+    fi
+
+    log_success "Container connected to bridge successfully" \
+                "Rumah berhasil terhubung ke jembatan komunikasi"
+
+    return 0
+}
+
 # Create veth pair for container-to communication
 create_veth_pair() {
     local container_name=$1
@@ -5337,16 +5412,44 @@ setup_container_ip() {
     local veth_container="${veth_names[1]}"
     local subnet_mask="24"
     
+    # Rename container interface to eth0 for consistency
+    if ! ip netns exec "container-$container_name" ip link set "$veth_container" name eth0; then
+        log_warn "Failed to rename interface to eth0, keeping original name" \
+                 "Gagal mengubah nama interface, tetap menggunakan nama asli"
+        local interface_name="$veth_container"
+    else
+        local interface_name="eth0"
+        log_info "Interface renamed to eth0" \
+                 "Interface berhasil dinamai eth0 untuk konsistensi"
+    fi
+
+    # Bring up the interface
+    if ! ip netns exec "container-$container_name" ip link set "$interface_name" up; then
+        log_error "Failed to bring up container interface" \
+                  "Gagal mengaktifkan interface container"
+        return 1
+    fi
+
     # Assign IP address to container interface
-    if ! ip netns exec "container-$container_name" ip addr add "${container_ip}/${subnet_mask}" dev "$veth_container"; then
+    if ! ip netns exec "container-$container_name" ip addr add "${container_ip}/${subnet_mask}" dev "$interface_name"; then
         log_error "Failed to assign IP address to container" \
                   "Gagal memberikan nomor telepon ke rumah"
         return 1
     fi
-    
-    log_info "IP address assigned: $container_ip/$subnet_mask" \
+
+    log_info "IP address assigned: $container_ip/$subnet_mask on $interface_name" \
              "Seperti nomor telepon $container_ip berhasil didaftarkan"
-    
+
+    # Add default route via bridge
+    local bridge_ip="10.0.0.1"
+    if ! ip netns exec "container-$container_name" ip route add default via "$bridge_ip" dev "$interface_name"; then
+        log_warn "Failed to add default route" \
+                 "Gagal menambahkan jalur default"
+    else
+        log_info "Default route added via $bridge_ip" \
+                 "Jalur default ditambahkan melalui jembatan"
+    fi
+
     # Store container IP for tracking
     set_container_ip "$container_name" "$container_ip"
     
@@ -5420,14 +5523,21 @@ setup_container_network() {
     
     log_info "Setting up complete network for container: $container_name" \
              "Seperti RT yang menyiapkan sistem komunikasi lengkap untuk rumah baru"
-    
+
+    # Setup container bridge (shared infrastructure)
+    if ! setup_container_bridge; then
+        log_error "Failed to setup container bridge" \
+                  "Gagal menyiapkan jembatan komunikasi"
+        return 1
+    fi
+
     # Create network namespace
     if ! create_network_namespace "$container_name"; then
         log_error "Failed to create network namespace" \
                   "Gagal menyiapkan sistem telepon rumah"
         return 1
     fi
-    
+
     # Create veth pair
     if ! create_veth_pair "$container_name"; then
         log_error "Failed to create veth pair" \
@@ -5435,7 +5545,15 @@ setup_container_network() {
         cleanup_container_network "$container_name"
         return 1
     fi
-    
+
+    # Connect container to bridge
+    if ! connect_container_to_bridge "$container_name"; then
+        log_error "Failed to connect container to bridge" \
+                  "Gagal menghubungkan rumah ke jembatan komunikasi"
+        cleanup_container_network "$container_name"
+        return 1
+    fi
+
     # Setup IP addressing
     if ! setup_container_ip "$container_name" "$container_ip"; then
         log_error "Failed to setup container IP" \
@@ -5443,7 +5561,7 @@ setup_container_network() {
         cleanup_container_network "$container_name"
         return 1
     fi
-    
+
     # Configure routing
     if ! setup_container_routing "$container_name"; then
         log_error "Failed to setup container routing" \
