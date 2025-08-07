@@ -7809,16 +7809,16 @@ EOF
         log_info "Starting container process..." \
                  "Memulai proses container..."
 
-        # Use setsid to create new session and avoid terminal issues
-        if [[ "$ROOTLESS_MODE" == "true" ]]; then
-            # Rootless mode - use user namespaces
-            setsid unshare --pid --mount --uts --ipc --user --map-root-user \
-                chroot "$container_rootfs" /run_container.sh </dev/null >/dev/null 2>&1 &
-        else
-            # Root mode - use basic namespaces (skip network for simplicity)
-            setsid unshare --pid --mount --uts --ipc \
-                chroot "$container_rootfs" /run_container.sh </dev/null >/dev/null 2>&1 &
-        fi
+        # Create a wrapper script to handle the background execution
+        local wrapper_script="/tmp/start_container_$container_name.sh"
+        cat > "$wrapper_script" << EOF
+#!/bin/bash
+exec unshare --pid --mount --uts --ipc chroot "$container_rootfs" /run_container.sh
+EOF
+        chmod +x "$wrapper_script"
+
+        # Start container using the wrapper script in background
+        "$wrapper_script" &
     fi
 
     local container_pid=$!
