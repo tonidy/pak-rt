@@ -359,7 +359,7 @@ check_rootless_support() {
         return 1
     fi
 
-    log_success "Rootless mode is supported on this system" \
+    log_success_always "Rootless mode is supported on this system" \
                 "Sistem mendukung mode tanpa wewenang penuh"
     return 0
 }
@@ -625,7 +625,7 @@ execute_rollback() {
     RECOVERY_ACTIONS_DATA=""
 
     RECOVERY_IN_PROGRESS=false
-    log_success "Rollback completed for operation: $operation" \
+    log_success_always "Rollback completed for operation: $operation" \
                 "RT berhasil membatalkan perubahan yang bermasalah"
 }
 
@@ -711,7 +711,7 @@ detect_and_recover_corrupted_state() {
     fi
     
     if [[ "$corruption_found" == "false" ]]; then
-        log_success "No corrupted state detected" \
+        log_success_always "No corrupted state detected" \
                     "Semua rumah dalam kondisi baik"
     fi
     
@@ -815,7 +815,7 @@ recover_corrupted_container() {
     
     clear_operation_context "recover_container"
     
-    log_success "Container recovery completed: $container_name" \
+    log_success_always "Container recovery completed: $container_name" \
                 "Pemulihan rumah selesai: $container_name"
 }
 
@@ -1227,7 +1227,7 @@ verify_container_isolation() {
         return 1
     fi
     
-    log_success "Container isolation verified successfully" \
+    log_success_always "Container isolation verified successfully" \
                 "Isolasi rumah terkonfirmasi aman: $container_name"
     return 0
 }
@@ -1389,7 +1389,7 @@ perform_security_audit() {
     
     # Report results
     if [[ ${#security_issues[@]} -eq 0 ]]; then
-        log_success "Security audit completed - no issues found" \
+        log_success_always "Security audit completed - no issues found" \
                     "Audit keamanan selesai - kompleks aman"
     else
         log_warn "Security audit found ${#security_issues[@]} issues:" \
@@ -1538,7 +1538,7 @@ cmd_security_audit() {
     fi
 
     clear_operation_context "security_audit"
-    log_success "Security audit completed" \
+    log_success_always "Security audit completed" \
                 "Audit keamanan selesai"
 
     return 0
@@ -1578,7 +1578,7 @@ cmd_install_busybox() {
     log_info "Installing busybox-static..." \
              "Menginstall busybox-static..."
     if apt install -y busybox-static; then
-        log_success "Busybox-static installed successfully" \
+        log_success_always "Busybox-static installed successfully" \
                     "Busybox-static berhasil diinstall"
 
         # Verify installation
@@ -2135,7 +2135,7 @@ cleanup_all_partial_states() {
         fi
     done
     
-    log_success "Cleaned up $cleanup_count partial container states" \
+    log_success_always "Cleaned up $cleanup_count partial container states" \
                 "Berhasil membersihkan $cleanup_count rumah yang tidak lengkap"
 }
 
@@ -2177,7 +2177,7 @@ cleanup_orphaned_network_interfaces() {
         done
     fi
     
-    log_success "Cleaned up orphaned network interfaces" \
+    log_success_always "Cleaned up orphaned network interfaces" \
                 "Berhasil membersihkan sambungan jaringan yang terlantar"
 }
 
@@ -2216,7 +2216,7 @@ cleanup_orphaned_cgroups() {
         done
     fi
     
-    log_success "Cleaned up orphaned cgroups" \
+    log_success_always "Cleaned up orphaned cgroups" \
                 "Berhasil membersihkan pengaturan resource yang terlantar"
 }
 
@@ -2242,7 +2242,7 @@ cleanup_orphaned_namespaces() {
         done
     fi
     
-    log_success "Cleaned up orphaned namespaces" \
+    log_success_always "Cleaned up orphaned namespaces" \
                 "Berhasil membersihkan namespace yang terlantar"
 }
 
@@ -7636,7 +7636,7 @@ cmd_cleanup_all() {
     cleanup_all_cgroups || ((cleanup_errors++))
     
     if [[ $cleanup_errors -eq 0 ]]; then
-        log_success "Emergency cleanup completed successfully!" \
+        log_success_always "Emergency cleanup completed successfully!" \
                     "Pembersihan darurat RT berhasil diselesaikan - kompleks kembali bersih"
     else
         log_warn "Emergency cleanup completed with $cleanup_errors errors" \
@@ -7687,7 +7687,7 @@ cleanup_container_resources() {
     fi
     
     if [[ $cleanup_errors -eq 0 ]]; then
-        log_success "All resources cleaned up for container: $container_name" \
+        log_success_always "All resources cleaned up for container: $container_name" \
                     "Semua fasilitas rumah '$container_name' berhasil dibersihkan"
     else
         log_warn "Resource cleanup completed with $cleanup_errors errors for container: $container_name" \
@@ -7964,7 +7964,7 @@ stop_container_process() {
     rm -f "$pid_file"
     update_container_status "$container_name" "stopped"
     
-    log_success "Container process stopped: $container_name" \
+    log_success_always "Container process stopped: $container_name" \
                 "Aktivitas penghuni rumah berhasil dihentikan"
     
     return 0
