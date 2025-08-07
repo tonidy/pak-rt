@@ -7430,6 +7430,42 @@ cmd_run_container() {
     return 0
 }
 
+# Execute command in container handler
+cmd_exec_container() {
+    local container_name="$1"
+    local exec_command="${2:-/bin/sh}"
+
+    if [[ -z "$container_name" ]]; then
+        log_error "Container name is required" \
+                  "Seperti RT perlu tahu rumah mana yang akan dimasuki"
+        echo "Usage: $0 exec <container_name> [command]"
+        return 1
+    fi
+
+    if ! validate_container_name "$container_name"; then
+        return 1
+    fi
+
+    if ! container_exists "$container_name"; then
+        log_error "Container does not exist: $container_name" \
+                  "Rumah tidak ditemukan di kompleks: $container_name"
+        return 1
+    fi
+
+    if ! container_is_running "$container_name"; then
+        log_error "Container is not running: $container_name" \
+                  "Rumah tidak aktif: $container_name"
+        echo "Start the container first with: $0 run $container_name"
+        return 1
+    fi
+
+    log_info "Pak RT sedang memasuki rumah '$container_name'..." \
+             "Seperti RT yang berkunjung ke rumah warga"
+
+    # Execute command in container
+    exec_container_command "$container_name" "$exec_command"
+}
+
 # Delete container command handler
 cmd_delete_container() {
     local container_name="$1"
@@ -7697,100 +7733,102 @@ EOF
     fi
 }
 
-# Start container process with all namespaces and limits
+# Start container process with simplified approach
 start_container_process() {
     local container_name=$1
     local command_to_run=${2:-"/bin/sh"}
     local container_rootfs="$CONTAINERS_DIR/$container_name/rootfs"
     local pid_file="$CONTAINERS_DIR/$container_name/container.pid"
-    
+
     log_info "Starting container process for: $container_name" \
              "Memulai aktivitas penghuni rumah: $container_name"
-    
-    # Create startup script for the container using secure temporary file
-    local startup_script="$CONTAINERS_DIR/$container_name/startup.sh"
-    local temp_startup=$(create_secure_temp_file "container_startup" ".sh")
-    if [[ -z "$temp_startup" ]]; then
-        log_error "Failed to create secure temporary file for startup script" \
-                  "Gagal membuat file sementara yang aman untuk skrip startup"
+
+    # Check if busybox is available in container
+    if [[ ! -x "$container_rootfs/bin/busybox" ]]; then
+        log_error "Busybox not found in container rootfs" \
+                  "Busybox tidak ditemukan di sistem file container"
         return 1
     fi
-    
-    # Create startup script with proper variable substitution
-    cat > "$temp_startup" << 'SCRIPT_START'
-#!/bin/sh
-set -e
 
-# Mount essential filesystems
-mount -t proc proc /proc 2>/dev/null || true
-mount -t sysfs sysfs /sys 2>/dev/null || true
-mount -t tmpfs tmpfs /tmp 2>/dev/null || true
+    # Start container with simplified approach - no complex startup script needed
+    log_info "Launching container with basic isolation..." \
+             "Meluncurkan rumah dengan isolasi dasar..."
 
-# Set hostname
-SCRIPT_START
-    echo "hostname \"$container_name\" 2>/dev/null || true" >> "$temp_startup"
-    cat >> "$temp_startup" << 'SCRIPT_MIDDLE'
+    # For macOS compatibility, use simpler approach
+    if [[ "$MACOS_MODE" == "true" ]]; then
+        log_info "Running in macOS compatibility mode (limited isolation)" \
+                 "Berjalan dalam mode kompatibilitas macOS (isolasi terbatas)"
 
-# Setup basic environment
-export PATH="/bin:/sbin:/usr/bin:/usr/sbin"
-export HOME="/root"
-export USER="root"
-export SHELL="/bin/sh"
-
-# Change to root directory
-cd /
-
-# Execute the requested command
-# If no specific command, run a simple sleep loop to keep container alive
-SCRIPT_MIDDLE
-    echo "if [ \"$command_to_run\" = \"/bin/sh\" ]; then" >> "$temp_startup"
-    cat >> "$temp_startup" << 'SCRIPT_END'
-    # For background containers, run a sleep loop
-    while true; do
-        sleep 3600
-    done
-else
-SCRIPT_END
-    echo "    exec $command_to_run" >> "$temp_startup"
-    echo "fi" >> "$temp_startup"
-    
-    # Atomically move temp file to final location
-    if mv "$temp_startup" "$startup_script"; then
-        chmod +x "$startup_script"
-        log_debug "Startup script created securely: $startup_script" \
-                  "Skrip startup dibuat dengan aman"
-
-        # Copy startup script into container rootfs
-        if cp "$startup_script" "$container_rootfs/startup.sh"; then
-            chmod +x "$container_rootfs/startup.sh"
-            log_debug "Startup script copied to container rootfs" \
-                      "Skrip startup disalin ke rootfs container"
-        else
-            log_error "Failed to copy startup script to container rootfs" \
-                      "Gagal menyalin skrip startup ke rootfs container"
-            return 1
-        fi
+        # Simple chroot without namespaces for macOS
+        (
+            cd "$container_rootfs"
+            chroot . /bin/busybox sh -c "
+                export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+                export HOME=/root
+                export USER=root
+                export SHELL=/bin/sh
+                hostname $container_name 2>/dev/null || true
+                cd /
+                if [ '$command_to_run' = '/bin/sh' ]; then
+                    # Keep container alive with sleep loop
+                    while true; do sleep 3600; done
+                else
+                    exec $command_to_run
+                fi
+            "
+        ) &
     else
-        log_error "Failed to create startup script" \
-                  "Gagal membuat skrip startup"
-        rm -f "$temp_startup" 2>/dev/null || true
-        return 1
+        # Linux with namespace support
+        log_info "Running with Linux namespace isolation" \
+                 "Berjalan dengan isolasi namespace Linux"
+
+        # Check if we can use user namespaces
+        if [[ "$ROOTLESS_MODE" == "true" ]]; then
+            # Rootless mode - use user namespaces
+            unshare --pid --mount --uts --ipc --user --map-root-user \
+                chroot "$container_rootfs" /bin/busybox sh -c "
+                    export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+                    export HOME=/root
+                    export USER=root
+                    export SHELL=/bin/sh
+                    hostname $container_name 2>/dev/null || true
+                    mount -t proc proc /proc 2>/dev/null || true
+                    mount -t tmpfs tmpfs /tmp 2>/dev/null || true
+                    cd /
+                    if [ '$command_to_run' = '/bin/sh' ]; then
+                        while true; do sleep 3600; done
+                    else
+                        exec $command_to_run
+                    fi
+                " &
+        else
+            # Root mode - use all namespaces except user
+            unshare --pid --mount --uts --ipc --net \
+                chroot "$container_rootfs" /bin/busybox sh -c "
+                    export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+                    export HOME=/root
+                    export USER=root
+                    export SHELL=/bin/sh
+                    hostname $container_name 2>/dev/null || true
+                    mount -t proc proc /proc 2>/dev/null || true
+                    mount -t sysfs sysfs /sys 2>/dev/null || true
+                    mount -t tmpfs tmpfs /tmp 2>/dev/null || true
+                    cd /
+                    if [ '$command_to_run' = '/bin/sh' ]; then
+                        while true; do sleep 3600; done
+                    else
+                        exec $command_to_run
+                    fi
+                " &
+        fi
     fi
-    
-    # Start container with all namespaces
-    log_info "Launching container with full isolation..." \
-             "Meluncurkan rumah dengan sistem isolasi lengkap..."
-    
-    # Use unshare to create all namespaces and start the container
-    unshare --pid --mount --uts --ipc --net --user --map-root-user \
-        chroot "$container_rootfs" /startup.sh &
-    
+
     local container_pid=$!
     echo "$container_pid" > "$pid_file"
-    
+
     # Wait a moment to ensure container started
-    sleep 1
-    
+    sleep 2
+
     # Check if container is still running
     if ! kill -0 "$container_pid" 2>/dev/null; then
         log_error "Container failed to start" \
@@ -7798,29 +7836,87 @@ SCRIPT_END
         rm -f "$pid_file"
         return 1
     fi
-    
-    # Add process to cgroups
-    add_process_to_container_cgroups "$container_name" "$container_pid"
-    
+
+    # Add process to cgroups (skip on macOS)
+    if [[ "$MACOS_MODE" != "true" ]]; then
+        add_process_to_container_cgroups "$container_name" "$container_pid"
+    fi
+
     # Update container status
     update_container_status "$container_name" "running" "$container_pid"
-    
+
     log_success "Container '$container_name' started with PID: $container_pid" \
                 "Rumah '$container_name' berhasil dibuka dengan penghuni PID: $container_pid"
-    
+
     # Show container information
     echo ""
     echo "🏠 Container Information:"
     echo "   Name: $container_name"
     echo "   PID: $container_pid"
     echo "   Command: $command_to_run"
-    echo "   IP: $(get_container_ip "$container_name" 2>/dev/null || echo "N/A")"
+    echo "   Status: running"
+    if [[ "$MACOS_MODE" != "true" ]]; then
+        echo "   IP: $(get_container_ip "$container_name" 2>/dev/null || echo "N/A")"
+    else
+        echo "   IP: N/A (macOS mode)"
+    fi
     echo ""
     echo "💡 To connect to the container:"
-    echo "   nsenter -t $container_pid -p -m -u -i -n $command_to_run"
+    if [[ "$MACOS_MODE" == "true" ]]; then
+        echo "   Use: ./rt.sh exec $container_name [command]"
+    else
+        echo "   nsenter -t $container_pid -p -m -u -i -n /bin/busybox sh"
+    fi
     echo ""
-    
+
     return 0
+}
+
+# Execute command in running container
+exec_container_command() {
+    local container_name=$1
+    local exec_command=${2:-"/bin/sh"}
+    local pid_file="$CONTAINERS_DIR/$container_name/container.pid"
+
+    if [[ ! -f "$pid_file" ]]; then
+        log_error "Container not running: $container_name" \
+                  "Rumah tidak aktif: $container_name"
+        return 1
+    fi
+
+    local container_pid=$(cat "$pid_file")
+
+    if ! kill -0 "$container_pid" 2>/dev/null; then
+        log_error "Container process not running: $container_name" \
+                  "Proses rumah tidak aktif: $container_name"
+        rm -f "$pid_file"
+        return 1
+    fi
+
+    log_info "Executing command in container: $container_name" \
+             "Menjalankan perintah di rumah: $container_name"
+
+    if [[ "$MACOS_MODE" == "true" ]]; then
+        log_warn "Exec not fully supported in macOS mode" \
+                 "Exec tidak sepenuhnya didukung dalam mode macOS"
+        echo "Container PID: $container_pid"
+        echo "You can try to interact with the process directly"
+        return 1
+    else
+        # Use nsenter to enter the container namespaces
+        log_info "Entering container namespaces..." \
+                 "Memasuki ruang nama container..."
+
+        # Execute command in container namespaces
+        exec nsenter -t "$container_pid" -p -m -u -i -n /bin/busybox sh -c "
+            export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+            export HOME=/root
+            export USER=root
+            export SHELL=/bin/sh
+            cd /
+            exec $exec_command
+        "
+    fi
 }
 
 # Stop container process
@@ -8169,6 +8265,9 @@ main() {
             ;;
         "run-container"|"run")
             cmd_run_container "$2" "${3:-}"
+            ;;
+        "exec-container"|"exec")
+            cmd_exec_container "$2" "${3:-}"
             ;;
         "delete-container"|"delete")
             cmd_delete_container "$2"
