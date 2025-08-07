@@ -7279,21 +7279,8 @@ cmd_list_containers() {
             ip_address=$(grep -o '"ip_address":"[^"]*"' "$config_file" 2>/dev/null | cut -d'"' -f4 || echo "N/A")
         fi
         
-        # Color code status
-        local status_colored
-        case "$status" in
-            "running")
-                status_colored="${COLOR_GREEN}running${COLOR_RESET}"
-                ;;
-            "created")
-                status_colored="${COLOR_YELLOW}created${COLOR_RESET}"
-                ;;
-            *)
-                status_colored="${COLOR_RED}stopped${COLOR_RESET}"
-                ;;
-        esac
-        
-        printf "%-20s %-20s %-15s %-15s %-20s\n" "$container_name" "$status_colored" "$memory_mb" "$cpu_percent" "$ip_address"
+        # Display status without color codes
+        printf "%-20s %-10s %-15s %-15s %-20s\n" "$container_name" "$status" "$memory_mb" "$cpu_percent" "$ip_address"
     done
     
     echo ""
