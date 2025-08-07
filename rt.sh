@@ -151,19 +151,19 @@ log() {
         case $level in
             $LOG_ERROR)
                 echo -e "${COLOR_RED}[ERROR]${COLOR_RESET} [$timestamp] 🚨 $message" >&2
-                [[ -n "$analogy" ]] && echo -e "${COLOR_RED}        📝 Analoginya: $analogy${COLOR_RESET}" >&2
+                [[ -n "$analogy" ]] && echo -e "${COLOR_RED}        📝 Analogi: $analogy${COLOR_RESET}" >&2
                 ;;
             $LOG_WARN)
                 echo -e "${COLOR_YELLOW}[WARN]${COLOR_RESET}  [$timestamp] ⚠️  $message" >&2
-                [[ -n "$analogy" ]] && echo -e "${COLOR_YELLOW}        📝 Analoginya: $analogy${COLOR_RESET}" >&2
+                [[ -n "$analogy" ]] && echo -e "${COLOR_YELLOW}        📝 Analogi: $analogy${COLOR_RESET}" >&2
                 ;;
             $LOG_INFO)
                 echo -e "${COLOR_GREEN}[INFO]${COLOR_RESET}  [$timestamp] ℹ️  $message"
-                [[ -n "$analogy" ]] && echo -e "${COLOR_GREEN}        📝 Analoginya: $analogy${COLOR_RESET}"
+                [[ -n "$analogy" ]] && echo -e "${COLOR_GREEN}        📝 Analogi: $analogy${COLOR_RESET}"
                 ;;
             $LOG_DEBUG)
                 echo -e "${COLOR_CYAN}[DEBUG]${COLOR_RESET} [$timestamp] 🔍 $message"
-                [[ -n "$analogy" ]] && echo -e "${COLOR_CYAN}        📝 Analoginya: $analogy${COLOR_RESET}"
+                [[ -n "$analogy" ]] && echo -e "${COLOR_CYAN}        📝 Analogi: $analogy${COLOR_RESET}"
                 ;;
         esac
     fi
@@ -193,7 +193,7 @@ log_step() {
     local analogy=${3:-""}
     
     echo -e "\n${COLOR_BLUE}📋 Step $step_number: $step_description${COLOR_RESET}"
-    [[ -n "$analogy" ]] && echo -e "${COLOR_BLUE}   🏘️  Analoginya: $analogy${COLOR_RESET}"
+    [[ -n "$analogy" ]] && echo -e "${COLOR_BLUE}   🏘️  Analogi: $analogy${COLOR_RESET}"
     
     # Add verbose details if enabled
     if [[ "$VERBOSE_MODE" == "true" ]]; then
@@ -211,7 +211,7 @@ log_verbose() {
     if [[ "$VERBOSE_MODE" == "true" ]]; then
         echo -e "${COLOR_PURPLE}[VERBOSE]${COLOR_RESET} 📚 $message"
         [[ -n "$technical_detail" ]] && echo -e "${COLOR_PURPLE}          🔧 Technical: $technical_detail${COLOR_RESET}"
-        [[ -n "$analogy" ]] && echo -e "${COLOR_PURPLE}          🏘️  Analoginya: $analogy${COLOR_RESET}"
+        [[ -n "$analogy" ]] && echo -e "${COLOR_PURPLE}          🏘️  Analogi: $analogy${COLOR_RESET}"
     fi
 }
 
@@ -233,7 +233,7 @@ log_success() {
     local analogy=${2:-"Seperti RT berhasil menyelesaikan tugas untuk warga kompleks"}
     
     echo -e "\n${COLOR_GREEN}✅ SUCCESS: $message${COLOR_RESET}"
-    echo -e "${COLOR_GREEN}   🎉 Analoginya: $analogy${COLOR_RESET}\n"
+    echo -e "${COLOR_GREEN}   🎉 Analogi: $analogy${COLOR_RESET}\n"
 }
 
 # =============================================================================
@@ -1591,11 +1591,68 @@ check_privileges() {
         log_error "This script requires root privileges for namespace and cgroup operations" \
                   "Seperti RT memerlukan wewenang khusus untuk mengatur kompleks perumahan"
         log_info "Please run with: sudo $0 $* OR set ROOTLESS_MODE=true for limited functionality"
+
+        # Check specific cgroup permissions to provide better error messages
+        if [[ -d "$CGROUP_ROOT" ]]; then
+            if [[ ! -w "$CGROUP_ROOT" ]]; then
+                log_error "No write access to cgroup filesystem: $CGROUP_ROOT" \
+                          "Tidak ada akses tulis ke filesystem cgroup: $CGROUP_ROOT"
+                log_info "This is the most likely cause of 'Permission denied' errors when setting resource limits" \
+                         "Ini adalah penyebab paling mungkin dari error 'Permission denied' saat mengatur batas resource"
+            fi
+
+            # Check specific cgroup subsystems
+            for subsystem in memory cpu; do
+                if [[ -d "$CGROUP_ROOT/$subsystem" ]] && [[ ! -w "$CGROUP_ROOT/$subsystem" ]]; then
+                    log_error "No write access to $subsystem cgroup: $CGROUP_ROOT/$subsystem" \
+                              "Tidak ada akses tulis ke cgroup $subsystem: $CGROUP_ROOT/$subsystem"
+                fi
+            done
+        else
+            log_error "Cgroup filesystem not found at: $CGROUP_ROOT" \
+                      "Filesystem cgroup tidak ditemukan di: $CGROUP_ROOT"
+            log_info "Make sure cgroups are enabled and mounted on your system" \
+                     "Pastikan cgroups diaktifkan dan di-mount pada sistem Anda"
+        fi
+
         exit 1
     fi
 
     # Perform enhanced privilege checking for critical operations
     check_enhanced_privileges "general" || exit 1
+}
+
+# Provide specific troubleshooting advice for cgroup permission issues
+show_cgroup_permission_help() {
+    echo ""
+    log_info "🔧 TROUBLESHOOTING CGROUP PERMISSION ISSUES:" \
+             "🔧 MENGATASI MASALAH IZIN CGROUP:"
+    echo ""
+    log_info "1. Run with sudo (recommended):" \
+             "1. Jalankan dengan sudo (direkomendasikan):"
+    log_info "   sudo $0 [command]" \
+             "   sudo $0 [command]"
+    echo ""
+    log_info "2. Check if cgroups are properly mounted:" \
+             "2. Periksa apakah cgroups sudah di-mount dengan benar:"
+    log_info "   mount | grep cgroup" \
+             "   mount | grep cgroup"
+    echo ""
+    log_info "3. Check cgroup permissions:" \
+             "3. Periksa izin cgroup:"
+    log_info "   ls -la $CGROUP_ROOT" \
+             "   ls -la $CGROUP_ROOT"
+    echo ""
+    log_info "4. For Ubuntu/Debian systems, try:" \
+             "4. Untuk sistem Ubuntu/Debian, coba:"
+    log_info "   sudo mount -t cgroup -o memory,cpu cgroup /sys/fs/cgroup" \
+             "   sudo mount -t cgroup -o memory,cpu cgroup /sys/fs/cgroup"
+    echo ""
+    log_info "5. Alternative: Use rootless mode (limited functionality):" \
+             "5. Alternatif: Gunakan mode rootless (fungsi terbatas):"
+    log_info "   ROOTLESS_MODE=true $0 [command]" \
+             "   ROOTLESS_MODE=true $0 [command]"
+    echo ""
 }
 
 # Check if required commands are available
@@ -4118,7 +4175,7 @@ if [[ "$interactive" == "true" ]]; then
     echo "📍 IP Address: $CONTAINER_IP"
     echo "💾 Memory Limit: ${CONTAINER_MEMORY_MB}MB"
     echo "⚡ CPU Limit: ${CONTAINER_CPU_PERCENT}%"
-    echo "🏘️  Analoginya: Selamat datang di rumah Anda di kompleks RT!"
+    echo "🏘️  Analogi: Selamat datang di rumah Anda di kompleks RT!"
     echo ""
     exec /bin/busybox $command
 else
@@ -5162,7 +5219,19 @@ create_cgroup_structure() {
     # Validate inputs
     validate_memory_limit "$memory_mb" || return 1
     validate_cpu_percentage "$cpu_percent" || return 1
-    
+
+    # Check cgroup root permissions before attempting to create directories
+    if [[ ! -w "$CGROUP_ROOT/memory" ]] || [[ ! -w "$CGROUP_ROOT/cpu" ]]; then
+        log_error "No write permission to cgroup subsystems" \
+                  "Tidak ada izin menulis ke subsistem cgroup"
+        log_info "Memory cgroup writable: $(test -w "$CGROUP_ROOT/memory" && echo "Yes" || echo "No")" \
+                 "Cgroup memori dapat ditulis: $(test -w "$CGROUP_ROOT/memory" && echo "Ya" || echo "Tidak")"
+        log_info "CPU cgroup writable: $(test -w "$CGROUP_ROOT/cpu" && echo "Yes" || echo "No")" \
+                 "Cgroup CPU dapat ditulis: $(test -w "$CGROUP_ROOT/cpu" && echo "Ya" || echo "Tidak")"
+        show_cgroup_permission_help
+        return 1
+    fi
+
     # Create cgroup directories
     local memory_cgroup="$CGROUP_ROOT/memory/container-$container_name"
     local cpu_cgroup="$CGROUP_ROOT/cpu/container-$container_name"
@@ -5171,17 +5240,23 @@ create_cgroup_structure() {
              "Seperti menyiapkan meteran listrik khusus untuk rumah"
     
     if ! create_directory "$memory_cgroup" 755; then
-        log_error "Failed to create memory cgroup directory" \
-                  "Gagal menyiapkan meteran listrik rumah"
+        log_error "Failed to create memory cgroup directory: $memory_cgroup" \
+                  "Gagal menyiapkan meteran listrik rumah: $memory_cgroup"
+        log_info "Check parent directory permissions: $(ls -ld "$CGROUP_ROOT/memory" 2>/dev/null || echo 'Directory not found')" \
+                 "Periksa izin direktori induk: $(ls -ld "$CGROUP_ROOT/memory" 2>/dev/null || echo 'Direktori tidak ditemukan')"
+        show_cgroup_permission_help
         return 1
     fi
-    
+
     log_info "Creating CPU cgroup: $cpu_cgroup" \
              "Seperti menyiapkan pembagi waktu kerja untuk rumah"
-    
+
     if ! create_directory "$cpu_cgroup" 755; then
-        log_error "Failed to create CPU cgroup directory" \
-                  "Gagal menyiapkan pembagi waktu kerja rumah"
+        log_error "Failed to create CPU cgroup directory: $cpu_cgroup" \
+                  "Gagal menyiapkan pembagi waktu kerja rumah: $cpu_cgroup"
+        log_info "Check parent directory permissions: $(ls -ld "$CGROUP_ROOT/cpu" 2>/dev/null || echo 'Directory not found')" \
+                 "Periksa izin direktori induk: $(ls -ld "$CGROUP_ROOT/cpu" 2>/dev/null || echo 'Direktori tidak ditemukan')"
+        show_cgroup_permission_help
         return 1
     fi
     
@@ -5224,6 +5299,19 @@ set_memory_limit() {
                   "Meteran listrik rumah belum dipasang"
         return 1
     fi
+
+    # Check if we have write permission to the memory limit file
+    if [[ ! -w "$memory_cgroup/memory.limit_in_bytes" ]]; then
+        log_error "No write permission to memory limit file: $memory_cgroup/memory.limit_in_bytes" \
+                  "Tidak ada izin menulis ke file pembatas memori"
+        log_info "Current user: $(whoami), EUID: $EUID" \
+                 "User saat ini: $(whoami), EUID: $EUID"
+        log_info "File permissions: $(ls -l "$memory_cgroup/memory.limit_in_bytes" 2>/dev/null || echo 'File not found')" \
+                 "Izin file: $(ls -l "$memory_cgroup/memory.limit_in_bytes" 2>/dev/null || echo 'File tidak ditemukan')"
+        log_info "Try running with: sudo $0 [command]" \
+                 "Coba jalankan dengan: sudo $0 [command]"
+        return 1
+    fi
     
     # Convert MB to bytes
     local memory_bytes=$((memory_mb * 1024 * 1024))
@@ -5231,10 +5319,17 @@ set_memory_limit() {
     log_info "Setting memory limit to $memory_bytes bytes" \
              "Seperti mengatur batas listrik rumah: ${memory_mb}MB"
     
-    # Set memory limit
-    if ! echo "$memory_bytes" > "$memory_cgroup/memory.limit_in_bytes"; then
-        log_error "Failed to set memory limit" \
-                  "Gagal mengatur batas pemakaian listrik rumah"
+    # Set memory limit with better error handling
+    if ! echo "$memory_bytes" > "$memory_cgroup/memory.limit_in_bytes" 2>/dev/null; then
+        # Check if it's a permission issue
+        if [[ ! -w "$memory_cgroup/memory.limit_in_bytes" ]]; then
+            log_error "Permission denied: Cannot write to cgroup memory limit file" \
+                      "Akses ditolak: Tidak bisa menulis ke file pembatas memori"
+            show_cgroup_permission_help
+        else
+            log_error "Failed to set memory limit (unknown error)" \
+                      "Gagal mengatur batas pemakaian listrik rumah (error tidak diketahui)"
+        fi
         return 1
     fi
     
@@ -5287,6 +5382,17 @@ set_cpu_limit() {
                   "Pembagi waktu kerja rumah belum dipasang"
         return 1
     fi
+
+    # Check if we have write permission to the CPU limit files
+    if [[ ! -w "$cpu_cgroup/cpu.cfs_period_us" ]] || [[ ! -w "$cpu_cgroup/cpu.cfs_quota_us" ]]; then
+        log_error "No write permission to CPU limit files in: $cpu_cgroup" \
+                  "Tidak ada izin menulis ke file pembatas CPU"
+        log_info "Current user: $(whoami), EUID: $EUID" \
+                 "User saat ini: $(whoami), EUID: $EUID"
+        log_info "Try running with: sudo $0 [command]" \
+                 "Coba jalankan dengan: sudo $0 [command]"
+        return 1
+    fi
     
     # CPU cgroup uses CFS (Completely Fair Scheduler)
     # Period is typically 100000 microseconds (100ms)
@@ -5297,16 +5403,28 @@ set_cpu_limit() {
              "Seperti mengatur waktu kerja: ${cpu_percent}% dari total waktu"
     
     # Set CFS period
-    if ! echo "$cfs_period" > "$cpu_cgroup/cpu.cfs_period_us"; then
-        log_error "Failed to set CPU period" \
-                  "Gagal mengatur periode waktu kerja"
+    if ! echo "$cfs_period" > "$cpu_cgroup/cpu.cfs_period_us" 2>/dev/null; then
+        if [[ ! -w "$cpu_cgroup/cpu.cfs_period_us" ]]; then
+            log_error "Permission denied: Cannot write to CPU period file" \
+                      "Akses ditolak: Tidak bisa menulis ke file periode CPU"
+            show_cgroup_permission_help
+        else
+            log_error "Failed to set CPU period (unknown error)" \
+                      "Gagal mengatur periode waktu kerja (error tidak diketahui)"
+        fi
         return 1
     fi
-    
+
     # Set CFS quota
-    if ! echo "$cfs_quota" > "$cpu_cgroup/cpu.cfs_quota_us"; then
-        log_error "Failed to set CPU quota" \
-                  "Gagal mengatur kuota waktu kerja"
+    if ! echo "$cfs_quota" > "$cpu_cgroup/cpu.cfs_quota_us" 2>/dev/null; then
+        if [[ ! -w "$cpu_cgroup/cpu.cfs_quota_us" ]]; then
+            log_error "Permission denied: Cannot write to CPU quota file" \
+                      "Akses ditolak: Tidak bisa menulis ke file kuota CPU"
+            show_cgroup_permission_help
+        else
+            log_error "Failed to set CPU quota (unknown error)" \
+                      "Gagal mengatur kuota waktu kerja (error tidak diketahui)"
+        fi
         return 1
     fi
     
@@ -6403,15 +6521,29 @@ cmd_validate_system() {
         echo -e "${COLOR_GREEN}   ✅ Cgroups root: Available at $CGROUP_ROOT${COLOR_RESET}"
         
         if [[ -d "$CGROUP_ROOT/memory" ]]; then
-            echo -e "${COLOR_GREEN}   ✅ Memory cgroup: Available${COLOR_RESET}"
+            if [[ -w "$CGROUP_ROOT/memory" ]]; then
+                echo -e "${COLOR_GREEN}   ✅ Memory cgroup: Available and writable${COLOR_RESET}"
+            else
+                echo -e "${COLOR_YELLOW}   ⚠️  Memory cgroup: Available but not writable${COLOR_RESET}"
+                echo -e "${COLOR_YELLOW}      Permissions: $(ls -ld "$CGROUP_ROOT/memory" | awk '{print $1}')"
+                issues_found+=("memory_cgroup_not_writable")
+                validation_passed=false
+            fi
         else
             echo -e "${COLOR_RED}   ❌ Memory cgroup: Not available${COLOR_RESET}"
             issues_found+=("missing_memory_cgroup")
             validation_passed=false
         fi
-        
+
         if [[ -d "$CGROUP_ROOT/cpu" ]]; then
-            echo -e "${COLOR_GREEN}   ✅ CPU cgroup: Available${COLOR_RESET}"
+            if [[ -w "$CGROUP_ROOT/cpu" ]]; then
+                echo -e "${COLOR_GREEN}   ✅ CPU cgroup: Available and writable${COLOR_RESET}"
+            else
+                echo -e "${COLOR_YELLOW}   ⚠️  CPU cgroup: Available but not writable${COLOR_RESET}"
+                echo -e "${COLOR_YELLOW}      Permissions: $(ls -ld "$CGROUP_ROOT/cpu" | awk '{print $1}')"
+                issues_found+=("cpu_cgroup_not_writable")
+                validation_passed=false
+            fi
         else
             echo -e "${COLOR_RED}   ❌ CPU cgroup: Not available${COLOR_RESET}"
             issues_found+=("missing_cpu_cgroup")
@@ -6496,6 +6628,11 @@ cmd_validate_system() {
                 "missing_cgroups"|"missing_memory_cgroup"|"missing_cpu_cgroup")
                     echo -e "${COLOR_YELLOW}   - Enable cgroups in kernel configuration${COLOR_RESET}"
                     ;;
+                "memory_cgroup_not_writable"|"cpu_cgroup_not_writable")
+                    echo -e "${COLOR_YELLOW}   - Run with sudo: sudo $0 [command]${COLOR_RESET}"
+                    echo -e "${COLOR_YELLOW}   - Check cgroup mount options and permissions${COLOR_RESET}"
+                    echo -e "${COLOR_YELLOW}   - For detailed help: $0 validate-system${COLOR_RESET}"
+                    ;;
                 "busybox_not_functional")
                     echo -e "${COLOR_YELLOW}   - Reinstall or fix busybox binary${COLOR_RESET}"
                     ;;
@@ -6504,10 +6641,19 @@ cmd_validate_system() {
                     ;;
             esac
         done
+
+        # Show additional help for cgroup permission issues
+        for issue in "${issues_found[@]}"; do
+            if [[ "$issue" == "memory_cgroup_not_writable" || "$issue" == "cpu_cgroup_not_writable" ]]; then
+                echo ""
+                show_cgroup_permission_help
+                break
+            fi
+        done
     fi
-    
+
     clear_operation_context "validate_system"
-    
+
     if [[ "$validation_passed" == "true" ]]; then
         return 0
     else
