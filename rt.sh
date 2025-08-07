@@ -7726,7 +7726,7 @@ mount -t sysfs sysfs /sys 2>/dev/null || true
 mount -t tmpfs tmpfs /tmp 2>/dev/null || true
 
 # Set hostname
-hostname "$container_name" 2>/dev/null || true
+hostname "${container_name}" 2>/dev/null || true
 
 # Setup basic environment
 export PATH="/bin:/sbin:/usr/bin:/usr/sbin"
@@ -7739,13 +7739,13 @@ cd /
 
 # Execute the requested command
 # If no specific command, run a simple sleep loop to keep container alive
-if [ "$command_to_run" = "/bin/sh" ]; then
+if [ "${command_to_run}" = "/bin/sh" ]; then
     # For background containers, run a sleep loop
     while true; do
         sleep 3600
     done
 else
-    exec $command_to_run
+    exec ${command_to_run}
 fi
 EOF
     
