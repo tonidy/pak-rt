@@ -5339,6 +5339,95 @@ cleanup_failed_container() {
     return 0
 }
 
+# Create veth pair and connect to bridge (combined operation)
+create_veth_pair_and_bridge() {
+    local container_name=$1
+    local bridge_name="pak-rt-br0"
+
+    log_step 2 "Creating veth pair and connecting to bridge for: $container_name" \
+              "Seperti memasang kabel telepon dan menghubungkannya ke sentral"
+
+    # Get veth names using helper function
+    local veth_names=($(generate_veth_names "$container_name"))
+    local veth_host="${veth_names[0]}"
+    local veth_container="${veth_names[1]}"
+
+    # Check if veth pair already exists
+    if ip link show "$veth_host" >/dev/null 2>&1; then
+        log_warn "Veth pair already exists, cleaning up first" \
+                 "Kabel telepon sudah ada, membersihkan dulu"
+        ip link delete "$veth_host" 2>/dev/null || true
+        sleep 0.1
+    fi
+
+    # Create veth pair with retry
+    local retry_count=0
+    while [[ $retry_count -lt 3 ]]; do
+        if ip link add "$veth_host" type veth peer name "$veth_container" 2>/dev/null; then
+            break
+        else
+            ((retry_count++))
+            if [[ $retry_count -lt 3 ]]; then
+                log_debug "Veth creation failed, retrying ($retry_count/3)" \
+                          "Pemasangan kabel gagal, mencoba lagi"
+                sleep 0.2
+            else
+                log_error "Failed to create veth pair after 3 attempts" \
+                          "Gagal memasang kabel telepon setelah 3 kali percobaan"
+                return 1
+            fi
+        fi
+    done
+
+    log_info "Veth pair created: $veth_host <-> $veth_container" \
+             "Seperti kabel telepon terpasang antara sentral dan rumah"
+
+    # Connect host veth to bridge BEFORE moving container veth to namespace
+    if ! ip link set "$veth_host" master "$bridge_name"; then
+        log_error "Failed to connect veth to bridge" \
+                  "Gagal menghubungkan kabel ke jembatan"
+        ip link delete "$veth_host" 2>/dev/null
+        return 1
+    fi
+
+    # Bring up host veth
+    if ! ip link set "$veth_host" up; then
+        log_error "Failed to bring up host veth" \
+                  "Gagal mengaktifkan kabel host"
+        ip link delete "$veth_host" 2>/dev/null
+        return 1
+    fi
+
+    log_info "Host veth connected to bridge successfully" \
+             "Kabel host berhasil terhubung ke jembatan komunikasi"
+
+    # Move container end to the container's network namespace
+    if ! ip link set "$veth_container" netns "container-$container_name"; then
+        log_error "Failed to move veth to container namespace" \
+                  "Gagal memasang ujung kabel ke dalam rumah"
+        # Cleanup on failure
+        ip link delete "$veth_host" 2>/dev/null
+        return 1
+    fi
+
+    log_info "Container veth moved to namespace successfully" \
+             "Ujung kabel rumah berhasil dipasang di dalam rumah"
+
+    # Store veth configuration
+    local ns_dir="$CONTAINERS_DIR/$container_name/namespaces"
+    cat >> "$ns_dir/network.conf" << EOF
+veth_host=$veth_host
+veth_container=$veth_container
+veth_created=true
+bridge_connected=true
+EOF
+
+    log_success "Veth pair created and connected to bridge successfully" \
+                "Kabel telepon terpasang dan terhubung ke jembatan komunikasi"
+
+    return 0
+}
+
 # Create network namespace for container
 create_network_namespace() {
     local container_name=$1
@@ -5726,18 +5815,10 @@ setup_container_network() {
         return 1
     fi
 
-    # Create veth pair
-    if ! create_veth_pair "$container_name"; then
-        log_error "Failed to create veth pair" \
-                  "Gagal memasang kabel telepon"
-        cleanup_container_network "$container_name"
-        return 1
-    fi
-
-    # Connect container to bridge
-    if ! connect_container_to_bridge "$container_name"; then
-        log_error "Failed to connect container to bridge" \
-                  "Gagal menghubungkan rumah ke jembatan komunikasi"
+    # Create veth pair and connect to bridge
+    if ! create_veth_pair_and_bridge "$container_name"; then
+        log_error "Failed to create veth pair and connect to bridge" \
+                  "Gagal memasang kabel telepon dan menghubungkan ke jembatan"
         cleanup_container_network "$container_name"
         return 1
     fi
