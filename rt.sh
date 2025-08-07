@@ -8069,7 +8069,7 @@ main() {
             cmd_list_containers
             ;;
         "run-container")
-            cmd_run_container "$2" "$3"
+            cmd_run_container "$2" "${3:-}"
             ;;
         "delete-container")
             cmd_delete_container "$2"
