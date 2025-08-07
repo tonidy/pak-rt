@@ -7891,8 +7891,9 @@ start_container_process() {
 
         # Start container with busybox directly - use --fork for PID namespace
         # The --fork is crucial for PID namespace to work properly
-        # Include network namespace for full isolation
-        unshare --pid --mount --uts --ipc --net --fork \
+        # Use existing network namespace instead of creating new one
+        ip netns exec "container-$container_name" \
+            unshare --pid --mount --uts --ipc --fork \
             chroot "$container_rootfs" \
             /bin/busybox sh -c 'hostname $(cat /etc/hostname 2>/dev/null || echo container); mount -t proc proc /proc 2>/dev/null; exec /bin/busybox sleep 999999999' &
     fi
