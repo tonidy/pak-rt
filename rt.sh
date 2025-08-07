@@ -103,6 +103,9 @@ init_paths() {
         CONTAINERS_DIR="$HOME/.local/share/rt"
         BUSYBOX_PATH="$CONTAINERS_DIR/busybox"
     fi
+
+    # Initialize centralized configuration
+    init_pak_rt_config
 }
 
 # Check OS compatibility and show appropriate warnings
@@ -4119,6 +4122,133 @@ ACTIVE_NETWORKS_DATA=""
 CONTAINER_IPS_DATA=""
 NEXT_IP_OCTET=2
 
+# Centralized configuration directory
+readonly PAK_RT_CONFIG_DIR="$HOME/.config/pak-rt"
+readonly PAK_RT_CONFIG_FILE="$PAK_RT_CONFIG_DIR/config.json"
+
+# Initialize centralized configuration
+init_pak_rt_config() {
+    # Create config directory if it doesn't exist
+    if [[ ! -d "$PAK_RT_CONFIG_DIR" ]]; then
+        mkdir -p "$PAK_RT_CONFIG_DIR"
+        log_debug "Created pak-rt config directory: $PAK_RT_CONFIG_DIR"
+    fi
+
+    # Create default config file if it doesn't exist
+    if [[ ! -f "$PAK_RT_CONFIG_FILE" ]]; then
+        cat > "$PAK_RT_CONFIG_FILE" << EOF
+{
+  "version": "1.0",
+  "created": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "network": {
+    "bridge_name": "pak-rt-br0",
+    "bridge_ip": "10.0.0.1/24",
+    "subnet": "10.0.0.0/24",
+    "next_ip_octet": 2,
+    "allocated_ips": {}
+  },
+  "containers": {},
+  "settings": {
+    "default_memory_mb": 512,
+    "default_cpu_percent": 50,
+    "log_level": "info"
+  }
+}
+EOF
+        log_debug "Created pak-rt config file: $PAK_RT_CONFIG_FILE"
+    fi
+
+    # Load current configuration
+    load_pak_rt_config
+}
+
+# Load configuration from centralized file
+load_pak_rt_config() {
+    if [[ ! -f "$PAK_RT_CONFIG_FILE" ]]; then
+        log_debug "Config file not found, initializing"
+        init_pak_rt_config
+        return
+    fi
+
+    # Load next IP octet
+    local next_octet=$(python3 -c "
+import json, sys
+try:
+    with open('$PAK_RT_CONFIG_FILE', 'r') as f:
+        config = json.load(f)
+    print(config.get('network', {}).get('next_ip_octet', 2))
+except:
+    print(2)
+" 2>/dev/null || echo "2")
+
+    NEXT_IP_OCTET=$next_octet
+
+    # Load allocated IPs into memory
+    CONTAINER_IPS_DATA=$(python3 -c "
+import json, sys
+try:
+    with open('$PAK_RT_CONFIG_FILE', 'r') as f:
+        config = json.load(f)
+    allocated = config.get('network', {}).get('allocated_ips', {})
+    entries = []
+    for container, ip in allocated.items():
+        entries.append(f'{container}:{ip}')
+    print('|'.join(entries))
+except:
+    print('')
+" 2>/dev/null || echo "")
+
+    log_debug "Loaded pak-rt config: next_octet=$NEXT_IP_OCTET, ips=$CONTAINER_IPS_DATA"
+}
+
+# Save configuration to centralized file
+save_pak_rt_config() {
+    if [[ ! -f "$PAK_RT_CONFIG_FILE" ]]; then
+        init_pak_rt_config
+    fi
+
+    # Convert CONTAINER_IPS_DATA to JSON format
+    local allocated_ips_json=$(python3 -c "
+import json, sys
+allocated = {}
+if '$CONTAINER_IPS_DATA':
+    entries = '$CONTAINER_IPS_DATA'.split('|')
+    for entry in entries:
+        if ':' in entry:
+            container, ip = entry.split(':', 1)
+            allocated[container] = ip
+print(json.dumps(allocated))
+" 2>/dev/null || echo "{}")
+
+    # Update config file
+    python3 -c "
+import json, sys
+try:
+    with open('$PAK_RT_CONFIG_FILE', 'r') as f:
+        config = json.load(f)
+except:
+    config = {}
+
+# Ensure structure exists
+if 'network' not in config:
+    config['network'] = {}
+
+# Update values
+config['network']['next_ip_octet'] = $NEXT_IP_OCTET
+config['network']['allocated_ips'] = $allocated_ips_json
+config['network']['last_updated'] = '$(date -u +"%Y-%m-%dT%H:%M:%SZ")'
+
+# Write back
+with open('$PAK_RT_CONFIG_FILE', 'w') as f:
+    json.dump(config, f, indent=2)
+" 2>/dev/null || {
+        log_error "Failed to save pak-rt config"
+        return 1
+    }
+
+    log_debug "Saved pak-rt config: next_octet=$NEXT_IP_OCTET"
+}
+
 # Helper functions for network management using simple string format
 set_container_network() {
     local container_name=$1
@@ -4178,12 +4308,17 @@ set_container_ip() {
     # Remove existing entry if present
     unset_container_ip "$container_name"
 
-    # Add new entry
+    # Add new entry to memory
     if [[ -n "$CONTAINER_IPS_DATA" ]]; then
         CONTAINER_IPS_DATA="$CONTAINER_IPS_DATA|$container_name:$ip"
     else
         CONTAINER_IPS_DATA="$container_name:$ip"
     fi
+
+    # Save to centralized config
+    save_pak_rt_config
+
+    log_debug "Set container IP: $container_name -> $ip"
 }
 
 get_container_ip() {
@@ -4253,6 +4388,11 @@ unset_container_ip() {
         done
 
         CONTAINER_IPS_DATA="$new_data"
+
+        # Save to centralized config
+        save_pak_rt_config
+
+        log_debug "Unset container IP: $container_name"
     fi
 }
 
@@ -4291,6 +4431,10 @@ get_next_container_ip() {
     done
     
     NEXT_IP_OCTET=$((octet + 1))
+
+    # Save updated state to config
+    save_pak_rt_config
+
     echo "$base_ip.$octet"
 }
 
