@@ -5686,14 +5686,22 @@ setup_container_ip() {
     local veth_container="${veth_names[1]}"
     local subnet_mask="24"
 
-    # Find the actual interface name in the container namespace
-    local interface_name=$(ip netns exec "container-$container_name" ip link show | grep -E "^[0-9]+:" | grep -v "lo:" | head -1 | cut -d: -f2 | tr -d ' ')
+    # Find the actual veth interface name in the container namespace
+    # Look for interface that matches our veth pattern or is a veth type
+    local interface_name=$(ip netns exec "container-$container_name" ip link show | grep -E "veth|eth" | grep -v "lo" | head -1 | cut -d: -f2 | tr -d ' ' | cut -d'@' -f1)
+
+    # If no veth found, try to find any non-loopback interface
+    if [[ -z "$interface_name" ]]; then
+        interface_name=$(ip netns exec "container-$container_name" ip link show | grep -E "^[0-9]+:" | grep -v "lo:" | grep -v "tunl" | head -1 | cut -d: -f2 | tr -d ' ' | cut -d'@' -f1)
+    fi
 
     if [[ -z "$interface_name" ]]; then
-        log_error "No network interface found in container namespace" \
-                  "Tidak ada interface jaringan di dalam rumah"
+        log_error "No suitable network interface found in container namespace" \
+                  "Tidak ada interface jaringan yang sesuai di dalam rumah"
         return 1
     fi
+
+    log_debug "Found container interface: $interface_name"
 
     # Rename to eth0 if not already named eth0
     if [[ "$interface_name" != "eth0" ]]; then
