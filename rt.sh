@@ -228,19 +228,25 @@ log() {
 
 # Convenience logging functions with RT analogies
 log_error() {
-    log $LOG_ERROR "$1" "${2:-Seperti ada masalah di kompleks perumahan yang perlu segera ditangani RT}"
+    log $LOG_ERROR "$1" "${2:-Seperti ada masalah di kompleks perumahan yang perlu segera ditangani pak RT}"
 }
 
 log_warn() {
-    log $LOG_WARN "$1" "${2:-Seperti ada hal yang perlu diperhatikan RT untuk kelancaran kompleks}"
+    log $LOG_WARN "$1" "${2:-Seperti ada hal yang perlu diperhatikan pak RT untuk kelancaran kompleks}"
 }
 
 log_info() {
-    log $LOG_INFO "$1" "${2:-Seperti pengumuman RT untuk warga kompleks}"
+    # Only show info logs in verbose mode
+    if [[ "$VERBOSE_MODE" == "true" ]]; then
+        log $LOG_INFO "$1" "${2:-Seperti pengumuman RT untuk warga kompleks}"
+    fi
 }
 
 log_debug() {
-    log $LOG_DEBUG "$1" "${2:-Seperti catatan detail RT untuk monitoring kompleks}"
+    # Only show debug logs in verbose mode
+    if [[ "$VERBOSE_MODE" == "true" ]]; then
+        log $LOG_DEBUG "$1" "${2:-Seperti catatan detail RT untuk monitoring kompleks}"
+    fi
 }
 
 # Educational step-by-step logging
@@ -248,12 +254,11 @@ log_step() {
     local step_number=$1
     local step_description=$2
     local analogy=${3:-""}
-    
-    echo -e "\n${COLOR_BLUE}📋 Step $step_number: $step_description${COLOR_RESET}"
-    [[ -n "$analogy" ]] && echo -e "${COLOR_BLUE}   🏘️  Analogi: $analogy${COLOR_RESET}"
-    
-    # Add verbose details if enabled
+
+    # Only show step logs in verbose mode
     if [[ "$VERBOSE_MODE" == "true" ]]; then
+        echo -e "\n${COLOR_BLUE}📋 Step $step_number: $step_description${COLOR_RESET}"
+        [[ -n "$analogy" ]] && echo -e "${COLOR_BLUE}   🏘️  Analogi: $analogy${COLOR_RESET}"
         echo -e "${COLOR_CYAN}   🔍 Verbose: Executing step with detailed monitoring...${COLOR_RESET}"
         sleep 0.5  # Brief pause for educational effect
     fi
@@ -7321,7 +7326,7 @@ cmd_create_container() {
 cmd_list_containers() {
     log_info "Pak RT sedang memeriksa daftar semua rumah di kompleks..." \
              "Seperti RT yang melakukan pendataan warga dan status rumah"
-    
+
     if [[ ! -d "$CONTAINERS_DIR" ]]; then
         log_info "No containers directory found" \
                  "Belum ada kompleks perumahan yang terdaftar"
@@ -7329,9 +7334,9 @@ cmd_list_containers() {
         echo "Use '$0 create <name>' to create your first container."
         return 0
     fi
-    
+
     local containers=($(find "$CONTAINERS_DIR" -maxdepth 1 -type d -not -path "$CONTAINERS_DIR" -exec basename {} \; 2>/dev/null | sort))
-    
+
     if [[ ${#containers[@]} -eq 0 ]]; then
         log_info "No containers found" \
                  "Kompleks perumahan masih kosong, belum ada rumah yang terdaftar"
@@ -7465,11 +7470,8 @@ cmd_exec_container() {
         return 1
     fi
 
-    # Only show info logs in verbose mode
-    if [[ "$VERBOSE_MODE" == "true" ]]; then
-        log_info "Pak RT sedang memasuki rumah '$container_name' untuk menjalankan: $exec_command" \
-                 "Seperti RT yang berkunjung ke rumah warga untuk melakukan aktivitas"
-    fi
+    log_info "Pak RT sedang memasuki rumah '$container_name' untuk menjalankan: $exec_command" \
+             "Seperti RT yang berkunjung ke rumah warga untuk melakukan aktivitas"
 
     # Execute command in container
     exec_container_command "$container_name" "$exec_command"
@@ -7804,7 +7806,8 @@ start_container_process() {
 
         # Start container with busybox directly - use --fork for PID namespace
         # The --fork is crucial for PID namespace to work properly
-        unshare --pid --mount --uts --ipc --fork \
+        # Include network namespace for full isolation
+        unshare --pid --mount --uts --ipc --net --fork \
             chroot "$container_rootfs" \
             /bin/busybox sh -c 'hostname $(cat /etc/hostname 2>/dev/null || echo container); mount -t proc proc /proc 2>/dev/null; exec /bin/busybox sleep 999999999' &
     fi
@@ -7879,11 +7882,8 @@ exec_container_command() {
         return 1
     fi
 
-    # Only show info logs in verbose mode
-    if [[ "$VERBOSE_MODE" == "true" ]]; then
-        log_info "Executing command in container: $container_name" \
-                 "Menjalankan perintah di rumah: $container_name"
-    fi
+    log_info "Executing command in container: $container_name" \
+             "Menjalankan perintah di rumah: $container_name"
 
     if [[ "$MACOS_MODE" == "true" ]]; then
         log_warn "Exec not fully supported in macOS mode" \
@@ -7893,10 +7893,8 @@ exec_container_command() {
         return 1
     else
         # Use nsenter to enter the container namespaces
-        if [[ "$VERBOSE_MODE" == "true" ]]; then
-            log_info "Entering container namespaces..." \
-                     "Memasuki ruang nama container..."
-        fi
+        log_info "Entering container namespaces..." \
+                 "Memasuki ruang nama container..."
 
         # Execute command in container namespaces
         exec nsenter -t "$container_pid" -p -m -u -i -n /bin/busybox sh -c "
