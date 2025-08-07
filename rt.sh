@@ -5455,7 +5455,7 @@ setup_container_ip() {
 
     # Store container IP for tracking
     set_container_ip "$container_name" "$container_ip"
-    
+
     # Update network configuration
     local ns_dir="$CONTAINERS_DIR/$container_name/namespaces"
     cat >> "$ns_dir/network.conf" << EOF
@@ -5463,6 +5463,9 @@ container_ip=$container_ip
 subnet_mask=$subnet_mask
 ip_configured=true
 EOF
+
+    log_debug "Container IP stored: $container_name -> $container_ip" \
+              "IP rumah disimpan dalam database RT"
     
     log_success "Container IP configuration completed" \
                 "Nomor telepon rumah siap untuk menerima dan melakukan panggilan"
