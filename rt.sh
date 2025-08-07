@@ -1624,6 +1624,94 @@ cmd_setup_busybox() {
     fi
 }
 
+# Debug container command handler
+cmd_debug_container() {
+    local container_name="$1"
+
+    if [[ -z "$container_name" ]]; then
+        log_error "Container name is required" \
+                  "Seperti RT perlu tahu rumah mana yang akan di-debug"
+        echo "Usage: $0 debug-container <name>"
+        return 1
+    fi
+
+    if ! container_exists "$container_name"; then
+        log_error "Container '$container_name' does not exist" \
+                  "Rumah '$container_name' tidak terdaftar di kompleks RT"
+        return 1
+    fi
+
+    log_info "Debugging container: $container_name" \
+             "Seperti RT melakukan pemeriksaan mendetail rumah: $container_name"
+
+    local container_dir="$CONTAINERS_DIR/$container_name"
+    local rootfs="$container_dir/rootfs"
+
+    echo ""
+    echo "🔍 Container Debug Information:"
+    echo "================================"
+    echo "Container directory: $container_dir"
+    echo "Rootfs directory: $rootfs"
+    echo ""
+
+    # Check container files
+    echo "📁 Container files:"
+    ls -la "$container_dir" 2>/dev/null || echo "  Directory not accessible"
+    echo ""
+
+    # Check rootfs
+    echo "📁 Rootfs contents:"
+    ls -la "$rootfs" 2>/dev/null || echo "  Rootfs not accessible"
+    echo ""
+
+    # Check startup script
+    echo "📄 Startup script:"
+    if [[ -f "$rootfs/startup.sh" ]]; then
+        echo "  ✅ Startup script exists"
+        echo "  Permissions: $(ls -l "$rootfs/startup.sh" | awk '{print $1}')"
+        echo "  Content preview:"
+        head -10 "$rootfs/startup.sh" 2>/dev/null | sed 's/^/    /'
+    else
+        echo "  ❌ Startup script missing"
+    fi
+    echo ""
+
+    # Check busybox
+    echo "🔧 Busybox check:"
+    if [[ -f "$rootfs/bin/busybox" ]]; then
+        echo "  ✅ Busybox binary exists"
+        echo "  Permissions: $(ls -l "$rootfs/bin/busybox" | awk '{print $1}')"
+    else
+        echo "  ❌ Busybox binary missing"
+    fi
+
+    if [[ -L "$rootfs/bin/sh" ]]; then
+        echo "  ✅ /bin/sh symlink exists -> $(readlink "$rootfs/bin/sh")"
+    else
+        echo "  ❌ /bin/sh symlink missing"
+    fi
+    echo ""
+
+    # Test basic chroot
+    echo "🧪 Basic chroot test:"
+    if sudo chroot "$rootfs" /bin/sh -c 'echo "Hello from container"' 2>/dev/null; then
+        echo "  ✅ Basic chroot works"
+    else
+        echo "  ❌ Basic chroot failed"
+    fi
+    echo ""
+
+    # Test startup script
+    echo "🧪 Startup script test:"
+    if sudo timeout 5 chroot "$rootfs" /startup.sh 2>/dev/null; then
+        echo "  ✅ Startup script runs"
+    else
+        echo "  ❌ Startup script failed or timed out"
+    fi
+
+    return 0
+}
+
 # =============================================================================
 # INPUT VALIDATION AND ERROR HANDLING UTILITIES
 # =============================================================================
@@ -8173,6 +8261,9 @@ main() {
             ;;
         "setup-busybox")
             cmd_setup_busybox
+            ;;
+        "debug-container")
+            cmd_debug_container "$2"
             ;;
         "help"|"--help"|"-h")
             local topic=${2:-""}
